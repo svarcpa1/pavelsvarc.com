@@ -196,11 +196,11 @@ async function openExerciseModal() {
     document.getElementById("exercise-machine").value = "";
     document.getElementById("exercise-weight").value = "";
 
-    document.getElementById("modal-exercise").hidden = false;
+    document.getElementById("modal-exercise").classList.add("active");
 }
 
 function closeExerciseModal() {
-    document.getElementById("modal-exercise").hidden = true;
+    document.getElementById("modal-exercise").classList.remove("active");
 }
 
 async function saveExercise() {

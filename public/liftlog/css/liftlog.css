@@ -241,10 +241,14 @@ body {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.4);
-    display: flex;
     align-items: flex-end;
     justify-content: center;
     z-index: 100;
+    display: none;
+}
+
+.modal.active {
+    display: flex;
 }
 
 .modal-content {
