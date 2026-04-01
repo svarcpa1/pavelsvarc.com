@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>LiftLog</title>
+    <link rel="stylesheet" href="css/liftlog.css">
+</head>
+<body>
+    <!-- Login -->
+    <section id="screen-login" class="screen">
+        <div class="login-container">
+            <h1>LiftLog</h1>
+            <input type="password" id="pin-input" placeholder="Enter PIN" autocomplete="off">
+            <button id="btn-login" class="btn btn-primary">Enter</button>
+            <p id="login-error" class="error" hidden>Wrong PIN</p>
+        </div>
+    </section>
+
+    <!-- Home -->
+    <section id="screen-home" class="screen" hidden>
+        <header class="app-header">
+            <h1>LiftLog</h1>
+            <button id="btn-logout" class="btn-link">Logout</button>
+        </header>
+        <div class="home-actions">
+            <button id="btn-start" class="btn btn-primary btn-large">Start Workout</button>
+            <button id="btn-history" class="btn btn-secondary btn-large">History</button>
+        </div>
+    </section>
+
+    <!-- Pick Gym -->
+    <section id="screen-gym" class="screen" hidden>
+        <header class="app-header">
+            <button class="btn-back" data-screen="screen-home">&larr;</button>
+            <h2>Pick a Gym</h2>
+        </header>
+        <div id="gym-list" class="card-list"></div>
+    </section>
+
+    <!-- Active Workout -->
+    <section id="screen-workout" class="screen" hidden>
+        <header class="app-header">
+            <div>
+                <h2 id="workout-gym-name"></h2>
+                <span id="workout-timer" class="timer"></span>
+            </div>
+        </header>
+        <div id="exercise-list" class="exercise-list"></div>
+        <div class="workout-bottom-bar">
+            <button id="btn-add-exercise" class="btn btn-primary">+ Add Exercise</button>
+            <button id="btn-finish-workout" class="btn btn-secondary">Finish Workout</button>
+        </div>
+    </section>
+
+    <!-- Add Exercise Modal -->
+    <div id="modal-exercise" class="modal" hidden>
+        <div class="modal-content">
+            <h3>Add Exercise</h3>
+
+            <label>Body Part</label>
+            <div id="body-part-grid" class="body-part-grid"></div>
+
+            <label for="exercise-name">Exercise Name</label>
+            <input type="text" id="exercise-name" placeholder="e.g. Bench press">
+
+            <label for="exercise-machine">Machine <span class="optional">(optional)</span></label>
+            <input type="text" id="exercise-machine" placeholder="e.g. Smith machine">
+
+            <label for="exercise-weight">Max Weight (kg)</label>
+            <input type="number" id="exercise-weight" inputmode="decimal" step="0.5" placeholder="0">
+
+            <div class="modal-actions">
+                <button id="btn-save-exercise" class="btn btn-primary">Save</button>
+                <button id="btn-cancel-exercise" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History -->
+    <section id="screen-history" class="screen" hidden>
+        <header class="app-header">
+            <button class="btn-back" data-screen="screen-home">&larr;</button>
+            <h2>History</h2>
+        </header>
+        <div id="history-list" class="history-list"></div>
+    </section>
+
+    <script src="js/liftlog.js"></script>
+</body>
+</html>

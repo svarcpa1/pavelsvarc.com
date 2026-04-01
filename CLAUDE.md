@@ -19,19 +19,32 @@ public/              # Document root — deployed to webglobe.cz /public_html/
     db.php           # DB connection helper (reads .env from server, above public_html)
     projects.php     # JSON endpoint for project tiles
   index.html         # Landing page
+  liftlog/           # LiftLog fitness tracker sub-app
+    index.html       # SPA shell (all screens as sections)
+    css/liftlog.css  # Mobile-first styles
+    js/liftlog.js    # App logic (auth, screens, API calls)
+    api/             # LiftLog-specific endpoints
+      auth.php       # PIN auth (session-based)
+      workouts.php   # CRUD for workouts
+      exercises.php  # CRUD for exercises
+      gyms.php       # List gyms
+      body-parts.php # List body parts
 db/                  # Database migrations and schema (not deployed)
+  001_projects.sql   # Landing page projects table
+  002_liftlog_schema.sql  # LiftLog tables (ll_ prefix)
 .github/workflows/   # GitHub Actions (auto-deploy on push to main)
 ```
 
 ## Server Structure (webglobe.cz)
 ```
 pavelsvarc.com/
-  .env               # DB credentials — NOT in public_html, not web-accessible
+  .env               # DB + app credentials — NOT in public_html, not web-accessible
   public_html/       # Document root (contents of public/ get deployed here)
     index.html
     css/
     js/
     api/
+    liftlog/         # Fitness tracker app
 ```
 
 ## Key Concepts
@@ -39,6 +52,13 @@ pavelsvarc.com/
 - Project tiles are dynamic — stored in the database, not hardcoded
 - Each tile represents a separate project (fitness app, wedding page, etc.)
 - LinkedIn link in top-right corner
+
+## Sub-Projects
+### LiftLog (`/liftlog/`)
+- Mobile-first fitness tracker, PIN-protected (single user)
+- SPA: login → home → pick gym → add exercises → finish workout
+- DB tables prefixed `ll_` (ll_gyms, ll_body_parts, ll_workouts, ll_exercises)
+- Auth: bcrypt PIN hash in .env, PHP sessions scoped to /liftlog/
 
 ## Development Guidelines
 - Keep it simple — vanilla HTML/CSS/JS, no build tools
