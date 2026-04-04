@@ -182,7 +182,48 @@ function renderExercises() {
     });
 }
 
-async function finishWorkout() {
+function showFinishSummary() {
+    if (!currentWorkout) return;
+
+    const summary = document.getElementById("finish-summary");
+    const elapsed = Math.floor((Date.now() - new Date(currentWorkout.started_at).getTime()) / 1000);
+    const mins = Math.floor(elapsed / 60);
+
+    const exerciseRows = exercises.map(ex => {
+        const badges = (ex.body_parts || []).map(bp =>
+            `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
+        ).join("");
+        const weightStr = ex.max_weight !== null ? `${ex.max_weight} kg` : "";
+        return `
+            <div class="finish-exercise-row">
+                <div>
+                    ${badges}
+                    ${escapeHtml(ex.name)}
+                    ${ex.machine ? `<span style="color:#aaa"> · ${escapeHtml(ex.machine)}</span>` : ""}
+                </div>
+                <div class="weight">${weightStr}</div>
+            </div>
+        `;
+    }).join("");
+
+    summary.innerHTML = `
+        <div class="finish-meta">
+            <div class="finish-gym">${escapeHtml(currentWorkout.gym_name)}</div>
+            <div class="finish-duration">${mins} min · ${exercises.length} exercises</div>
+        </div>
+        ${exercises.length > 0
+            ? `<div class="finish-exercises">${exerciseRows}</div>`
+            : '<p class="empty-state" style="padding:1rem">No exercises added.</p>'}
+    `;
+
+    document.getElementById("modal-finish").classList.add("active");
+}
+
+function closeFinishSummary() {
+    document.getElementById("modal-finish").classList.remove("active");
+}
+
+async function confirmFinishWorkout() {
     if (!currentWorkout) return;
 
     await api("workouts.php", {
@@ -190,6 +231,7 @@ async function finishWorkout() {
         body: JSON.stringify({ id: currentWorkout.id }),
     });
 
+    closeFinishSummary();
     stopTimer();
     currentWorkout = null;
     exercises = [];
@@ -444,11 +486,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Workout
     document.getElementById("btn-add-exercise").addEventListener("click", () => openExerciseModal());
-    document.getElementById("btn-finish-workout").addEventListener("click", finishWorkout);
+    document.getElementById("btn-finish-workout").addEventListener("click", showFinishSummary);
 
     // Exercise modal
     document.getElementById("btn-save-exercise").addEventListener("click", saveExercise);
     document.getElementById("btn-cancel-exercise").addEventListener("click", closeExerciseModal);
+
+    // Finish summary modal
+    document.getElementById("btn-confirm-finish").addEventListener("click", confirmFinishWorkout);
+    document.getElementById("btn-cancel-finish").addEventListener("click", closeFinishSummary);
 
     // Back buttons
     document.querySelectorAll(".btn-back").forEach(btn => {

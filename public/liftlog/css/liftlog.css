@@ -249,6 +249,50 @@ body {
     font-size: 0.95rem;
 }
 
+/* ---- Finish Summary ---- */
+.finish-meta {
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 1rem;
+}
+
+.finish-meta .finish-gym {
+    font-weight: 600;
+    font-size: 1rem;
+    color: #222;
+}
+
+.finish-meta .finish-duration {
+    color: #888;
+    margin-top: 0.2rem;
+}
+
+.finish-exercises {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+}
+
+.finish-exercise-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.9rem;
+}
+
+.finish-exercise-row:last-child {
+    border-bottom: none;
+}
+
+.finish-exercise-row .weight {
+    font-weight: 600;
+    white-space: nowrap;
+    margin-left: 0.5rem;
+}
+
 /* ---- Add Exercise Modal ---- */
 .modal {
     position: fixed;
