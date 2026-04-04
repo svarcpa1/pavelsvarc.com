@@ -1,12 +1,17 @@
 /* LiftLog — mobile-first fitness tracker */
 
 const API = "/liftlog/api";
+const TOTAL_BODY_PARTS = 6;
 
 let currentWorkout = null; // { id, gym_id, gym_name, started_at }
 let exercises = [];        // exercises in current workout
 let gyms = [];
 let bodyParts = [];
 let timerInterval = null;
+
+// Exercise modal state
+let selectedBodyPartIds = [];
+let editingExerciseId = null;
 
 // ---- Screen management ----
 
@@ -109,30 +114,72 @@ async function startWorkout(gymId) {
     showScreen("screen-workout");
 }
 
+function isFullBody(exerciseList) {
+    const ids = new Set();
+    exerciseList.forEach(ex => {
+        if (ex.body_parts) {
+            ex.body_parts.forEach(bp => ids.add(bp.id));
+        }
+    });
+    return ids.size >= TOTAL_BODY_PARTS;
+}
+
 function renderExercises() {
     const container = document.getElementById("exercise-list");
+    const workoutScreen = document.getElementById("screen-workout");
 
     if (exercises.length === 0) {
         container.innerHTML = '<p class="empty-state">No exercises yet. Tap + Add Exercise to start.</p>';
+        workoutScreen.classList.remove("full-body");
         return;
     }
 
+    const fullBody = isFullBody(exercises);
+    workoutScreen.classList.toggle("full-body", fullBody);
+
     container.innerHTML = exercises.map(ex => {
-        const meta = [ex.body_part];
-        if (ex.machine) meta.push(ex.machine);
+        const badges = (ex.body_parts || []).map(bp =>
+            `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
+        ).join("");
         const weightStr = ex.max_weight !== null ? `${ex.max_weight} kg` : "";
 
         return `
-            <div class="exercise-item">
-                <div class="exercise-name">${escapeHtml(ex.name)}</div>
-                <div class="exercise-meta">
-                    <span class="body-part-badge">${escapeHtml(ex.body_part)}</span>
-                    ${ex.machine ? escapeHtml(ex.machine) : ""}
+            <div class="exercise-item" data-id="${ex.id}">
+                <div class="exercise-item-content">
+                    <div class="exercise-name">${escapeHtml(ex.name)}</div>
+                    <div class="exercise-meta">
+                        ${badges}
+                        ${ex.machine ? `<span style="color:#777">${escapeHtml(ex.machine)}</span>` : ""}
+                    </div>
+                    ${weightStr ? `<div class="exercise-weight">${weightStr}</div>` : ""}
                 </div>
-                ${weightStr ? `<div class="exercise-weight">${weightStr}</div>` : ""}
+                <div class="exercise-actions">
+                    <button class="btn-icon btn-edit-exercise" data-id="${ex.id}" title="Edit">&#9998;</button>
+                    <button class="btn-icon btn-delete btn-delete-exercise" data-id="${ex.id}" title="Delete">&#128465;</button>
+                </div>
             </div>
         `;
     }).join("");
+
+    // Edit exercise
+    container.querySelectorAll(".btn-edit-exercise").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const ex = exercises.find(x => x.id === parseInt(btn.dataset.id));
+            if (ex) openExerciseModal(ex);
+        });
+    });
+
+    // Delete exercise
+    container.querySelectorAll(".btn-delete-exercise").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (!confirm("Delete this exercise?")) return;
+            await api(`exercises.php?id=${btn.dataset.id}`, { method: "DELETE" });
+            exercises = exercises.filter(x => x.id !== parseInt(btn.dataset.id));
+            renderExercises();
+        });
+    });
 }
 
 async function finishWorkout() {
@@ -168,33 +215,54 @@ function stopTimer() {
     timerInterval = null;
 }
 
-// ---- Add Exercise Modal ----
+// ---- Exercise Modal (add + edit) ----
 
-let selectedBodyPartId = null;
-
-async function openExerciseModal() {
+async function openExerciseModal(exercise = null) {
     if (bodyParts.length === 0) {
         bodyParts = await api("body-parts.php");
     }
 
-    selectedBodyPartId = null;
+    // Reset state
+    selectedBodyPartIds = [];
+    editingExerciseId = null;
 
+    // Set modal title
+    const titleEl = document.getElementById("modal-title");
+
+    if (exercise) {
+        // Edit mode
+        editingExerciseId = exercise.id;
+        titleEl.textContent = "Edit Exercise";
+        document.getElementById("exercise-name").value = exercise.name || "";
+        document.getElementById("exercise-machine").value = exercise.machine || "";
+        document.getElementById("exercise-weight").value = exercise.max_weight !== null ? exercise.max_weight : "";
+        selectedBodyPartIds = (exercise.body_parts || []).map(bp => bp.id);
+    } else {
+        // Add mode
+        titleEl.textContent = "Add Exercise";
+        document.getElementById("exercise-name").value = "";
+        document.getElementById("exercise-machine").value = "";
+        document.getElementById("exercise-weight").value = "";
+    }
+
+    // Render body part grid
     const grid = document.getElementById("body-part-grid");
-    grid.innerHTML = bodyParts.map(bp =>
-        `<button class="body-part-btn" data-id="${bp.id}">${escapeHtml(bp.name)}</button>`
-    ).join("");
+    grid.innerHTML = bodyParts.map(bp => {
+        const selected = selectedBodyPartIds.includes(bp.id) ? " selected" : "";
+        return `<button class="body-part-btn${selected}" data-id="${bp.id}">${escapeHtml(bp.name)}</button>`;
+    }).join("");
 
     grid.querySelectorAll(".body-part-btn").forEach(btn => {
         btn.addEventListener("click", () => {
-            grid.querySelectorAll(".body-part-btn").forEach(b => b.classList.remove("selected"));
-            btn.classList.add("selected");
-            selectedBodyPartId = parseInt(btn.dataset.id);
+            const id = parseInt(btn.dataset.id);
+            btn.classList.toggle("selected");
+            if (selectedBodyPartIds.includes(id)) {
+                selectedBodyPartIds = selectedBodyPartIds.filter(x => x !== id);
+            } else {
+                selectedBodyPartIds.push(id);
+            }
         });
     });
-
-    document.getElementById("exercise-name").value = "";
-    document.getElementById("exercise-machine").value = "";
-    document.getElementById("exercise-weight").value = "";
 
     document.getElementById("modal-exercise").classList.add("active");
 }
@@ -208,20 +276,39 @@ async function saveExercise() {
     const machine = document.getElementById("exercise-machine").value.trim();
     const weight = document.getElementById("exercise-weight").value;
 
-    if (!selectedBodyPartId || !name) return;
+    if (selectedBodyPartIds.length === 0 || !name) return;
 
-    const exercise = await api("exercises.php", {
-        method: "POST",
-        body: JSON.stringify({
-            workout_id: currentWorkout.id,
-            body_part_id: selectedBodyPartId,
-            name,
-            machine: machine || null,
-            max_weight: weight !== "" ? parseFloat(weight) : null,
-        }),
-    });
+    if (editingExerciseId) {
+        // Edit existing exercise
+        const updated = await api("exercises.php", {
+            method: "PUT",
+            body: JSON.stringify({
+                id: editingExerciseId,
+                body_part_ids: selectedBodyPartIds,
+                name,
+                machine: machine || null,
+                max_weight: weight !== "" ? parseFloat(weight) : null,
+            }),
+        });
 
-    exercises.push(exercise);
+        const idx = exercises.findIndex(x => x.id === editingExerciseId);
+        if (idx !== -1) exercises[idx] = updated;
+    } else {
+        // Add new exercise
+        const exercise = await api("exercises.php", {
+            method: "POST",
+            body: JSON.stringify({
+                workout_id: currentWorkout.id,
+                body_part_ids: selectedBodyPartIds,
+                name,
+                machine: machine || null,
+                max_weight: weight !== "" ? parseFloat(weight) : null,
+            }),
+        });
+
+        exercises.push(exercise);
+    }
+
     renderExercises();
     closeExerciseModal();
 }
@@ -247,14 +334,21 @@ async function showHistory() {
             hour: "2-digit", minute: "2-digit",
         });
 
+        const fullBody = w.body_part_ids && w.body_part_ids.length >= TOTAL_BODY_PARTS;
+        const fullBodyClass = fullBody ? " full-body" : "";
+        const fullBodyBadge = fullBody ? '<span class="full-body-badge">Full Body</span>' : "";
+
         return `
-            <div class="history-item" data-id="${w.id}">
+            <div class="history-item${fullBodyClass}" data-id="${w.id}">
                 <div class="history-header">
                     <div>
                         <div class="date">${dateStr} ${timeStr}</div>
                         <div class="gym">${escapeHtml(w.gym_name)}</div>
                     </div>
-                    <div class="count">${w.exercise_count} exercises</div>
+                    <div style="display:flex;align-items:center;gap:0.3rem">
+                        <div class="count">${w.exercise_count} exercises${fullBodyBadge}</div>
+                        <button class="btn-icon btn-delete btn-delete-workout" data-id="${w.id}" title="Delete">&#128465;</button>
+                    </div>
                 </div>
                 <div class="history-detail" hidden></div>
             </div>
@@ -262,9 +356,24 @@ async function showHistory() {
     }).join("");
 
     // Tap to expand detail
-    container.querySelectorAll(".history-item").forEach(item => {
-        item.querySelector(".history-header").addEventListener("click", () => {
-            toggleHistoryDetail(item);
+    container.querySelectorAll(".history-header").forEach(header => {
+        header.addEventListener("click", (e) => {
+            if (e.target.closest(".btn-delete-workout")) return;
+            toggleHistoryDetail(header.closest(".history-item"));
+        });
+    });
+
+    // Delete workout
+    container.querySelectorAll(".btn-delete-workout").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (!confirm("Delete this workout and all its exercises?")) return;
+            await api(`workouts.php?id=${btn.dataset.id}`, { method: "DELETE" });
+            btn.closest(".history-item").remove();
+            // Check if list is now empty
+            if (container.children.length === 0) {
+                container.innerHTML = '<p class="empty-state">No workouts yet.</p>';
+            }
         });
     });
 
@@ -288,11 +397,14 @@ async function toggleHistoryDetail(item) {
             detail.innerHTML = '<p style="color:#aaa;font-size:0.85rem;padding:0.5rem 0">No exercises recorded.</p>';
         } else {
             detail.innerHTML = workout.exercises.map(ex => {
+                const badges = (ex.body_parts || []).map(bp =>
+                    `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
+                ).join("");
                 const weightStr = ex.max_weight !== null ? `${ex.max_weight} kg` : "";
                 return `
                     <div class="exercise-row">
                         <div>
-                            <span class="body-part-badge">${escapeHtml(ex.body_part)}</span>
+                            ${badges}
                             ${escapeHtml(ex.name)}
                             ${ex.machine ? `<span style="color:#aaa"> · ${escapeHtml(ex.machine)}</span>` : ""}
                         </div>
@@ -331,7 +443,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-history").addEventListener("click", showHistory);
 
     // Workout
-    document.getElementById("btn-add-exercise").addEventListener("click", openExerciseModal);
+    document.getElementById("btn-add-exercise").addEventListener("click", () => openExerciseModal());
     document.getElementById("btn-finish-workout").addEventListener("click", finishWorkout);
 
     // Exercise modal

@@ -15,6 +15,25 @@ require_once __DIR__ . '/../../api/db.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
+function getExerciseBodyParts(PDO $db, int $exerciseId): array {
+    $stmt = $db->prepare('
+        SELECT bp.id, bp.name
+        FROM ll_exercise_body_parts ebp
+        JOIN ll_body_parts bp ON bp.id = ebp.body_part_id
+        WHERE ebp.exercise_id = :exercise_id
+        ORDER BY bp.sort_order
+    ');
+    $stmt->execute(['exercise_id' => $exerciseId]);
+    return $stmt->fetchAll();
+}
+
+function insertBodyParts(PDO $db, int $exerciseId, array $bodyPartIds): void {
+    $stmt = $db->prepare('INSERT INTO ll_exercise_body_parts (exercise_id, body_part_id) VALUES (:exercise_id, :body_part_id)');
+    foreach ($bodyPartIds as $bpId) {
+        $stmt->execute(['exercise_id' => $exerciseId, 'body_part_id' => (int)$bpId]);
+    }
+}
+
 try {
     $db = getDb();
 
@@ -22,16 +41,18 @@ try {
         $input = json_decode(file_get_contents('php://input'), true);
 
         $workoutId = (int)($input['workout_id'] ?? 0);
-        $bodyPartId = (int)($input['body_part_id'] ?? 0);
+        $bodyPartIds = $input['body_part_ids'] ?? [];
         $name = trim($input['name'] ?? '');
         $machine = trim($input['machine'] ?? '') ?: null;
         $maxWeight = isset($input['max_weight']) && $input['max_weight'] !== '' ? (float)$input['max_weight'] : null;
 
-        if (!$workoutId || !$bodyPartId || !$name) {
+        if (!$workoutId || empty($bodyPartIds) || !$name) {
             http_response_code(400);
-            echo json_encode(['error' => 'workout_id, body_part_id, and name are required']);
+            echo json_encode(['error' => 'workout_id, body_part_ids, and name are required']);
             exit;
         }
+
+        $db->beginTransaction();
 
         // Get next sort_order for this workout
         $stmt = $db->prepare('SELECT COALESCE(MAX(sort_order), 0) + 1 FROM ll_exercises WHERE workout_id = :workout_id');
@@ -39,13 +60,12 @@ try {
         $sortOrder = (int)$stmt->fetchColumn();
 
         $stmt = $db->prepare('
-            INSERT INTO ll_exercises (workout_id, body_part_id, name, machine, max_weight, sort_order)
-            VALUES (:workout_id, :body_part_id, :name, :machine, :max_weight, :sort_order)
-            RETURNING id, workout_id, body_part_id, name, machine, max_weight, sort_order
+            INSERT INTO ll_exercises (workout_id, name, machine, max_weight, sort_order)
+            VALUES (:workout_id, :name, :machine, :max_weight, :sort_order)
+            RETURNING id, workout_id, name, machine, max_weight, sort_order
         ');
         $stmt->execute([
             'workout_id' => $workoutId,
-            'body_part_id' => $bodyPartId,
             'name' => $name,
             'machine' => $machine,
             'max_weight' => $maxWeight,
@@ -53,11 +73,61 @@ try {
         ]);
 
         $exercise = $stmt->fetch();
+        insertBodyParts($db, $exercise['id'], $bodyPartIds);
 
-        // Also return body part name
-        $bpStmt = $db->prepare('SELECT name FROM ll_body_parts WHERE id = :id');
-        $bpStmt->execute(['id' => $bodyPartId]);
-        $exercise['body_part'] = $bpStmt->fetchColumn();
+        $db->commit();
+
+        $exercise['body_parts'] = getExerciseBodyParts($db, $exercise['id']);
+
+        echo json_encode($exercise);
+        exit;
+    }
+
+    if ($method === 'PUT') {
+        $input = json_decode(file_get_contents('php://input'), true);
+
+        $id = (int)($input['id'] ?? 0);
+        $bodyPartIds = $input['body_part_ids'] ?? [];
+        $name = trim($input['name'] ?? '');
+        $machine = trim($input['machine'] ?? '') ?: null;
+        $maxWeight = isset($input['max_weight']) && $input['max_weight'] !== '' ? (float)$input['max_weight'] : null;
+
+        if (!$id || empty($bodyPartIds) || !$name) {
+            http_response_code(400);
+            echo json_encode(['error' => 'id, body_part_ids, and name are required']);
+            exit;
+        }
+
+        $db->beginTransaction();
+
+        $stmt = $db->prepare('
+            UPDATE ll_exercises SET name = :name, machine = :machine, max_weight = :max_weight
+            WHERE id = :id
+            RETURNING id, workout_id, name, machine, max_weight, sort_order
+        ');
+        $stmt->execute([
+            'id' => $id,
+            'name' => $name,
+            'machine' => $machine,
+            'max_weight' => $maxWeight,
+        ]);
+
+        $exercise = $stmt->fetch();
+
+        if (!$exercise) {
+            $db->rollBack();
+            http_response_code(404);
+            echo json_encode(['error' => 'Exercise not found']);
+            exit;
+        }
+
+        // Replace body parts
+        $db->prepare('DELETE FROM ll_exercise_body_parts WHERE exercise_id = :id')->execute(['id' => $id]);
+        insertBodyParts($db, $id, $bodyPartIds);
+
+        $db->commit();
+
+        $exercise['body_parts'] = getExerciseBodyParts($db, $id);
 
         echo json_encode($exercise);
         exit;

@@ -185,6 +185,19 @@ body {
     border: 1px solid #e8e8e8;
     border-radius: 10px;
     padding: 0.9rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.exercise-item-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.exercise-actions {
+    display: flex;
+    flex-shrink: 0;
 }
 
 .exercise-item .exercise-name {
@@ -379,6 +392,51 @@ body {
 
 .history-detail .exercise-row .weight {
     font-weight: 600;
+}
+
+/* ---- Icon Buttons (edit/delete) ---- */
+.btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0.4rem;
+    min-width: 48px;
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #bbb;
+    transition: color 0.15s;
+}
+
+.btn-icon:active {
+    color: #222;
+}
+
+.btn-delete:active {
+    color: #d32f2f;
+}
+
+/* ---- Full-body highlight ---- */
+.full-body.history-item {
+    border-color: #4caf50;
+    border-width: 2px;
+}
+
+#screen-workout.full-body .workout-bottom-bar {
+    border-top-color: #4caf50;
+}
+
+.full-body-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    background: #e8f5e9;
+    color: #2e7d32;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    margin-left: 0.4rem;
+    font-weight: 500;
 }
 
 /* ---- Focus states ---- */
