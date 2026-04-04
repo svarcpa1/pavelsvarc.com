@@ -54,6 +54,10 @@ body {
     width: 100%;
 }
 
+.btn[hidden] {
+    display: none;
+}
+
 .btn:active {
     opacity: 0.8;
 }
