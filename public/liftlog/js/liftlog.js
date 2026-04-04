@@ -128,6 +128,10 @@ function renderExercises() {
     const container = document.getElementById("exercise-list");
     const workoutScreen = document.getElementById("screen-workout");
 
+    // Toggle finish/cancel buttons based on exercise count
+    document.getElementById("btn-finish-workout").hidden = exercises.length === 0;
+    document.getElementById("btn-cancel-workout").hidden = exercises.length > 0;
+
     if (exercises.length === 0) {
         container.innerHTML = '<p class="empty-state">No exercises yet. Tap + Add Exercise to start.</p>';
         workoutScreen.classList.remove("full-body");
@@ -180,6 +184,19 @@ function renderExercises() {
             renderExercises();
         });
     });
+}
+
+async function cancelWorkout() {
+    if (!currentWorkout) return;
+    if (!confirm("Cancel this workout? It will not be saved.")) return;
+
+    // Delete the empty workout from the database
+    await api(`workouts.php?id=${currentWorkout.id}`, { method: "DELETE" });
+
+    stopTimer();
+    currentWorkout = null;
+    exercises = [];
+    showScreen("screen-home");
 }
 
 function showFinishSummary() {
@@ -487,6 +504,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Workout
     document.getElementById("btn-add-exercise").addEventListener("click", () => openExerciseModal());
     document.getElementById("btn-finish-workout").addEventListener("click", showFinishSummary);
+    document.getElementById("btn-cancel-workout").addEventListener("click", cancelWorkout);
 
     // Exercise modal
     document.getElementById("btn-save-exercise").addEventListener("click", saveExercise);
