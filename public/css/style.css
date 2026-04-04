@@ -17,7 +17,29 @@ body {
 header {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 1rem;
     padding: 1.5rem 2rem;
+}
+
+/* Theme toggle */
+.theme-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #999;
+    padding: 0.3rem;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+}
+
+.theme-toggle:hover {
+    color: #444;
+}
+
+.icon-sun {
+    display: none;
 }
 
 .linkedin-link {
@@ -98,6 +120,63 @@ header {
     font-size: 0.9rem;
     grid-column: 1 / -1;
     padding: 2rem;
+}
+
+/* Dark mode */
+body.dark {
+    background: #1a1a1a;
+    color: #ddd;
+}
+
+body.dark .hero h1 {
+    color: #ccc;
+}
+
+body.dark .tile {
+    border-color: #333;
+    background: #222;
+}
+
+body.dark .tile:hover {
+    border-color: #555;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+body.dark .tile p {
+    color: #999;
+}
+
+body.dark .tile .tag {
+    background: #333;
+    color: #888;
+}
+
+body.dark .linkedin-link {
+    color: #666;
+}
+
+body.dark .linkedin-link:hover {
+    color: #4a90d9;
+}
+
+body.dark .theme-toggle {
+    color: #666;
+}
+
+body.dark .theme-toggle:hover {
+    color: #ccc;
+}
+
+body.dark .icon-moon {
+    display: none;
+}
+
+body.dark .icon-sun {
+    display: block;
+}
+
+body.dark .projects-empty {
+    color: #555;
 }
 
 /* Responsive */

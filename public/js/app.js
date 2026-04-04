@@ -1,5 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
     loadProjects();
+    initTheme();
 });
 
 async function loadProjects() {
@@ -44,4 +45,17 @@ function escapeHtml(text) {
     const div = document.createElement("div");
     div.textContent = text;
     return div.innerHTML;
+}
+
+function initTheme() {
+    const saved = localStorage.getItem("theme");
+    if (saved === "dark") {
+        document.body.classList.add("dark");
+    }
+
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+        document.body.classList.toggle("dark");
+        const isDark = document.body.classList.contains("dark");
+        localStorage.setItem("theme", isDark ? "dark" : "light");
+    });
 }
