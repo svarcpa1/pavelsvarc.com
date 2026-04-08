@@ -487,6 +487,62 @@ body {
     font-weight: 500;
 }
 
+/* ---- Toast notifications ---- */
+.toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(1rem);
+    max-width: 440px;
+    width: calc(100% - 2rem);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    z-index: 200;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+}
+
+.toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.toast-error {
+    background: #d32f2f;
+    color: #fff;
+}
+
+.toast-warning {
+    background: #f57c00;
+    color: #fff;
+}
+
+/* ---- Validation errors ---- */
+input.validation-error {
+    border-color: #d32f2f;
+}
+
+.body-part-grid.validation-error {
+    outline: 2px solid #d32f2f;
+    outline-offset: 4px;
+    border-radius: 4px;
+}
+
+/* ---- Screen reader only ---- */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
 /* ---- Focus states ---- */
 input:focus {
     outline: none;

@@ -1,6 +1,6 @@
 <?php
 
-session_set_cookie_params(['lifetime' => 604800, 'path' => '/liftlog/', 'httponly' => true, 'samesite' => 'Strict']);
+session_set_cookie_params(['lifetime' => 604800, 'path' => '/liftlog/', 'httponly' => true, 'secure' => true, 'samesite' => 'Strict']);
 session_start();
 
 header('Content-Type: application/json; charset=utf-8');
