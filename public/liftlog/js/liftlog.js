@@ -368,7 +368,8 @@ async function openExerciseModal(exercise = null) {
     editingExerciseId = null;
     clearValidation();
     hideAutocomplete();
-    document.getElementById("last-weight-info").hidden = true;
+    const lwi = document.getElementById("last-weight-info");
+    if (lwi) lwi.hidden = true;
 
     // Set modal title
     const titleEl = document.getElementById("modal-title");
@@ -472,11 +473,13 @@ function selectAutocomplete(item) {
 }
 
 function hideAutocomplete() {
-    document.getElementById("autocomplete-dropdown").hidden = true;
+    const dd = document.getElementById("autocomplete-dropdown");
+    if (dd) dd.hidden = true;
 }
 
 function showLastWeight(weight, dateStr) {
     const el = document.getElementById("last-weight-info");
+    if (!el) return;
     if (!weight || weight === "") {
         el.hidden = true;
         return;
