@@ -1,7 +1,7 @@
 /* LiftLog — mobile-first fitness tracker */
 
 const API = "/liftlog/api";
-const TOTAL_BODY_PARTS = 6;
+const TOTAL_BODY_PARTS = 7;
 
 let currentWorkout = null; // { id, gym_id, gym_name, started_at }
 let exercises = [];        // exercises in current workout
@@ -337,6 +337,11 @@ async function saveExercise() {
 
     if (selectedBodyPartIds.length === 0 || !name) return;
 
+    const saveBtn = document.getElementById("btn-save-exercise");
+    if (saveBtn.disabled) return;
+    saveBtn.disabled = true;
+
+    try {
     if (editingExerciseId) {
         // Edit existing exercise
         const updated = await api("exercises.php", {
@@ -370,6 +375,9 @@ async function saveExercise() {
 
     renderExercises();
     closeExerciseModal();
+    } finally {
+        saveBtn.disabled = false;
+    }
 }
 
 // ---- History ----
