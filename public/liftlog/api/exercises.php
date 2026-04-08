@@ -133,6 +133,37 @@ try {
         exit;
     }
 
+    if ($method === 'GET') {
+        $search = trim($_GET['search'] ?? '');
+
+        if ($search === '') {
+            echo json_encode([]);
+            exit;
+        }
+
+        $pattern = '%' . $search . '%';
+
+        $stmt = $db->prepare('
+            SELECT sub.name, sub.max_weight, sub.last_date
+            FROM (
+                SELECT DISTINCT ON (e.name)
+                    e.name,
+                    e.max_weight,
+                    w.started_at AS last_date
+                FROM ll_exercises e
+                JOIN ll_workouts w ON w.id = e.workout_id
+                WHERE e.name ILIKE :pattern
+                ORDER BY e.name, w.started_at DESC
+            ) sub
+            ORDER BY sub.name
+            LIMIT 10
+        ');
+        $stmt->execute(['pattern' => $pattern]);
+
+        echo json_encode($stmt->fetchAll());
+        exit;
+    }
+
     if ($method === 'DELETE') {
         $id = (int)($_GET['id'] ?? 0);
 

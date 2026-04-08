@@ -64,7 +64,11 @@
             <div id="body-part-grid" class="body-part-grid"></div>
 
             <label for="exercise-name">Exercise Name</label>
-            <input type="text" id="exercise-name" placeholder="e.g. Bench press" maxlength="200">
+            <div class="autocomplete-wrapper">
+                <input type="text" id="exercise-name" placeholder="e.g. Bench press" maxlength="200" autocomplete="off">
+                <div id="autocomplete-dropdown" class="autocomplete-dropdown" hidden></div>
+            </div>
+            <div id="last-weight-info" class="last-weight-info" hidden></div>
 
             <label for="exercise-machine">Machine <span class="optional">(optional)</span></label>
             <input type="text" id="exercise-machine" placeholder="e.g. Smith machine" maxlength="200">

@@ -12,6 +12,7 @@ let timerInterval = null;
 // Exercise modal state
 let selectedBodyPartIds = [];
 let editingExerciseId = null;
+let autocompleteTimer = null;
 
 // ---- Screen management ----
 
@@ -366,6 +367,8 @@ async function openExerciseModal(exercise = null) {
     selectedBodyPartIds = [];
     editingExerciseId = null;
     clearValidation();
+    hideAutocomplete();
+    document.getElementById("last-weight-info").hidden = true;
 
     // Set modal title
     const titleEl = document.getElementById("modal-title");
@@ -386,11 +389,20 @@ async function openExerciseModal(exercise = null) {
         document.getElementById("exercise-weight").value = "";
     }
 
+    // Compute already-trained body parts from current workout
+    const trainedBodyPartIds = new Set();
+    exercises.forEach(ex => {
+        // Skip the exercise being edited
+        if (exercise && ex.id === exercise.id) return;
+        (ex.body_parts || []).forEach(bp => trainedBodyPartIds.add(bp.id));
+    });
+
     // Render body part grid
     const grid = document.getElementById("body-part-grid");
     grid.innerHTML = bodyParts.map(bp => {
         const selected = selectedBodyPartIds.includes(bp.id) ? " selected" : "";
-        return `<button class="body-part-btn${selected}" data-id="${bp.id}">${escapeHtml(bp.name)}</button>`;
+        const trained = trainedBodyPartIds.has(bp.id) ? " trained" : "";
+        return `<button class="body-part-btn${selected}${trained}" data-id="${bp.id}">${escapeHtml(bp.name)}</button>`;
     }).join("");
 
     grid.querySelectorAll(".body-part-btn").forEach(btn => {
@@ -412,6 +424,69 @@ async function openExerciseModal(exercise = null) {
 
 function closeExerciseModal() {
     document.getElementById("modal-exercise").classList.remove("active");
+    hideAutocomplete();
+    clearTimeout(autocompleteTimer);
+}
+
+// ---- Autocomplete + Last Weight ----
+
+async function fetchAutocomplete(query) {
+    try {
+        const results = await api(`exercises.php?search=${encodeURIComponent(query)}`);
+        renderAutocomplete(results);
+    } catch {
+        hideAutocomplete();
+    }
+}
+
+function renderAutocomplete(results) {
+    const dropdown = document.getElementById("autocomplete-dropdown");
+    if (results.length === 0) {
+        hideAutocomplete();
+        return;
+    }
+    dropdown.innerHTML = results.map(r => {
+        const weightInfo = r.max_weight !== null
+            ? `<span class="ac-weight">${r.max_weight} kg</span>`
+            : "";
+        return `<div class="ac-item" data-name="${escapeHtml(r.name)}"
+                     data-weight="${r.max_weight ?? ""}"
+                     data-date="${r.last_date ?? ""}">
+                    <span class="ac-name">${escapeHtml(r.name)}</span>
+                    ${weightInfo}
+                </div>`;
+    }).join("");
+    dropdown.hidden = false;
+
+    dropdown.querySelectorAll(".ac-item").forEach(item => {
+        item.addEventListener("click", () => selectAutocomplete(item));
+    });
+}
+
+function selectAutocomplete(item) {
+    const nameInput = document.getElementById("exercise-name");
+    nameInput.value = item.dataset.name;
+    nameInput.classList.remove("validation-error");
+    hideAutocomplete();
+    showLastWeight(item.dataset.weight, item.dataset.date);
+}
+
+function hideAutocomplete() {
+    document.getElementById("autocomplete-dropdown").hidden = true;
+}
+
+function showLastWeight(weight, dateStr) {
+    const el = document.getElementById("last-weight-info");
+    if (!weight || weight === "") {
+        el.hidden = true;
+        return;
+    }
+    const date = new Date(dateStr);
+    const formatted = date.toLocaleDateString("cs-CZ", {
+        day: "numeric", month: "numeric", year: "numeric",
+    });
+    el.textContent = `Last time: ${weight} kg (${formatted})`;
+    el.hidden = false;
 }
 
 function clearValidation() {
@@ -640,14 +715,59 @@ document.addEventListener("DOMContentLoaded", () => {
         btn.addEventListener("click", () => showScreen(btn.dataset.screen));
     });
 
-    // Escape key closes modals
+    // Escape key closes modals + autocomplete
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
+            const dropdown = document.getElementById("autocomplete-dropdown");
+            if (!dropdown.hidden) {
+                hideAutocomplete();
+                return;
+            }
             if (document.getElementById("modal-exercise").classList.contains("active")) {
                 closeExerciseModal();
             } else if (document.getElementById("modal-finish").classList.contains("active")) {
                 closeFinishSummary();
             }
+        }
+    });
+
+    // Exercise name autocomplete
+    const exerciseNameInput = document.getElementById("exercise-name");
+
+    exerciseNameInput.addEventListener("input", () => {
+        clearTimeout(autocompleteTimer);
+        const query = exerciseNameInput.value.trim();
+        if (query.length < 2) {
+            hideAutocomplete();
+            return;
+        }
+        autocompleteTimer = setTimeout(() => fetchAutocomplete(query), 300);
+    });
+
+    exerciseNameInput.addEventListener("blur", () => {
+        // Delay to allow click on dropdown item to fire first
+        setTimeout(() => {
+            hideAutocomplete();
+            // Show last weight on blur if exact match exists
+            const query = exerciseNameInput.value.trim();
+            if (query.length >= 2 && document.getElementById("last-weight-info").hidden) {
+                api(`exercises.php?search=${encodeURIComponent(query)}`)
+                    .then(results => {
+                        const exact = results.find(r => r.name.toLowerCase() === query.toLowerCase());
+                        if (exact) {
+                            showLastWeight(exact.max_weight, exact.last_date);
+                        }
+                    })
+                    .catch(() => {});
+            }
+        }, 150);
+    });
+
+    // Click outside autocomplete to dismiss
+    document.addEventListener("click", (e) => {
+        const dropdown = document.getElementById("autocomplete-dropdown");
+        if (!dropdown.hidden && !e.target.closest(".autocomplete-wrapper")) {
+            hideAutocomplete();
         }
     });
 
