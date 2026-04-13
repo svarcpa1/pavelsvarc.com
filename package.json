@@ -1,0 +1,15 @@
+{
+  "name": "pavelsvarc.com",
+  "private": true,
+  "type": "module",
+  "description": "Personal portfolio + LiftLog fitness tracker",
+  "scripts": {
+    "lint:js": "eslint 'public/**/*.js'",
+    "lint:html": "html-validate 'public/**/*.html'",
+    "lint": "npm run lint:js && npm run lint:html"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "html-validate": "^8.0.0"
+  }
+}

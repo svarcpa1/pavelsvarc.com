@@ -36,7 +36,7 @@ async function loadProjects() {
             `;
         }).join("");
 
-    } catch (err) {
+    } catch {
         container.innerHTML = '<p class="projects-empty">Projects coming soon...</p>';
     }
 }

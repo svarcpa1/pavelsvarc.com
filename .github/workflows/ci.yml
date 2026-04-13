@@ -1,0 +1,87 @@
+name: CI Checks
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+jobs:
+  lint-php:
+    name: PHP Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint PHP files
+        run: |
+          echo "Checking PHP syntax..."
+          errors=0
+          for file in $(find public -name '*.php'); do
+            if ! php -l "$file" 2>&1; then
+              errors=$((errors + 1))
+            fi
+          done
+          if [ $errors -gt 0 ]; then
+            echo "::error::$errors PHP file(s) have syntax errors"
+            exit 1
+          fi
+          echo "All PHP files OK"
+
+  lint-js:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run ESLint
+        run: npx eslint 'public/**/*.js'
+
+  lint-html:
+    name: HTML Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate HTML
+        run: npx html-validate 'public/**/*.html'
+
+  secrets-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for leaked secrets
+        run: |
+          echo "Scanning for potential secrets..."
+          found=0
+          if git grep -lP '(DB_PASS|DB_HOST|DB_PORT|DB_NAME|DB_USER)\s*=' -- public/ ; then
+            echo "::error::Possible database credentials found in public/ directory"
+            found=1
+          fi
+          if git grep -lP '(password|secret|api_key|private_key)\s*=\s*["\x27][^"\x27]{8,}' -- public/ ':(exclude)public/liftlog/js/liftlog.js' ; then
+            echo "::error::Possible hardcoded secrets found"
+            found=1
+          fi
+          if [ -f "public/.env" ]; then
+            echo "::error::.env file found in public/ directory!"
+            found=1
+          fi
+          if [ $found -eq 1 ]; then
+            exit 1
+          fi
+          echo "No secrets detected"

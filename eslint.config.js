@@ -1,0 +1,47 @@
+export default [
+    {
+        files: ["public/**/*.js"],
+        languageOptions: {
+            ecmaVersion: 2022,
+            sourceType: "script",
+            globals: {
+                // Browser globals
+                document: "readonly",
+                window: "readonly",
+                fetch: "readonly",
+                console: "readonly",
+                confirm: "readonly",
+                alert: "readonly",
+                setTimeout: "readonly",
+                clearTimeout: "readonly",
+                setInterval: "readonly",
+                clearInterval: "readonly",
+                localStorage: "readonly",
+                Date: "readonly",
+                Set: "readonly",
+                Error: "readonly",
+                parseInt: "readonly",
+                encodeURIComponent: "readonly",
+            },
+        },
+        rules: {
+            // Catch real bugs
+            "no-undef": "error",
+            "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+            "no-dupe-keys": "error",
+            "no-duplicate-case": "error",
+            "no-unreachable": "error",
+            "no-constant-condition": "error",
+            "no-empty": "warn",
+            "no-redeclare": "error",
+            "no-self-assign": "error",
+            "no-self-compare": "error",
+            "use-isnan": "error",
+            "valid-typeof": "error",
+            "eqeqeq": ["warn", "smart"],
+            "no-var": "warn",
+            "no-debugger": "error",
+            "no-alert": "off",
+        },
+    },
+];

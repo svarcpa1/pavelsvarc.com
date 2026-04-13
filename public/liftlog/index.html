@@ -13,7 +13,7 @@
             <h1>LiftLog</h1>
             <label for="pin-input" class="sr-only">PIN</label>
             <input type="password" id="pin-input" placeholder="Enter PIN" autocomplete="off">
-            <button id="btn-login" class="btn btn-primary">Enter</button>
+            <button type="button" id="btn-login" class="btn btn-primary">Enter</button>
             <p id="login-error" class="error" hidden>Wrong PIN</p>
         </div>
     </section>
@@ -22,18 +22,18 @@
     <section id="screen-home" class="screen" hidden>
         <header class="app-header">
             <h1>LiftLog</h1>
-            <button id="btn-logout" class="btn-link">Logout</button>
+            <button type="button" id="btn-logout" class="btn-link">Logout</button>
         </header>
         <div class="home-actions">
-            <button id="btn-start" class="btn btn-primary btn-large">Start Workout</button>
-            <button id="btn-history" class="btn btn-secondary btn-large">History</button>
+            <button type="button" id="btn-start" class="btn btn-primary btn-large">Start Workout</button>
+            <button type="button" id="btn-history" class="btn btn-secondary btn-large">History</button>
         </div>
     </section>
 
     <!-- Pick Gym -->
     <section id="screen-gym" class="screen" hidden>
         <header class="app-header">
-            <button class="btn-back" data-screen="screen-home">&larr;</button>
+            <button type="button" class="btn-back" data-screen="screen-home" aria-label="Back">&larr;</button>
             <h2>Pick a Gym</h2>
         </header>
         <div id="gym-list" class="card-list"></div>
@@ -43,15 +43,15 @@
     <section id="screen-workout" class="screen" hidden>
         <header class="app-header">
             <div>
-                <h2 id="workout-gym-name"></h2>
+                <h2 id="workout-gym-name"><!-- filled by JS -->&nbsp;</h2>
                 <span id="workout-timer" class="timer"></span>
             </div>
         </header>
         <div id="exercise-list" class="exercise-list"></div>
         <div class="workout-bottom-bar">
-            <button id="btn-add-exercise" class="btn btn-primary">+ Add Exercise</button>
-            <button id="btn-finish-workout" class="btn btn-secondary" hidden>Finish Workout</button>
-            <button id="btn-cancel-workout" class="btn btn-secondary">Cancel Workout</button>
+            <button type="button" id="btn-add-exercise" class="btn btn-primary">+ Add Exercise</button>
+            <button type="button" id="btn-finish-workout" class="btn btn-secondary" hidden>Finish Workout</button>
+            <button type="button" id="btn-cancel-workout" class="btn btn-secondary">Cancel Workout</button>
         </div>
     </section>
 
@@ -77,8 +77,8 @@
             <input type="number" id="exercise-weight" inputmode="decimal" step="0.5" min="0" placeholder="0">
 
             <div class="modal-actions">
-                <button id="btn-save-exercise" class="btn btn-primary">Save</button>
-                <button id="btn-cancel-exercise" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="btn-save-exercise" class="btn btn-primary">Save</button>
+                <button type="button" id="btn-cancel-exercise" class="btn btn-secondary">Cancel</button>
             </div>
         </div>
     </div>
@@ -89,8 +89,8 @@
             <h3>Workout Summary</h3>
             <div id="finish-summary"></div>
             <div class="modal-actions">
-                <button id="btn-confirm-finish" class="btn btn-primary">Finish Workout</button>
-                <button id="btn-cancel-finish" class="btn btn-secondary">Go Back</button>
+                <button type="button" id="btn-confirm-finish" class="btn btn-primary">Finish Workout</button>
+                <button type="button" id="btn-cancel-finish" class="btn btn-secondary">Go Back</button>
             </div>
         </div>
     </div>
@@ -98,7 +98,7 @@
     <!-- History -->
     <section id="screen-history" class="screen" hidden>
         <header class="app-header">
-            <button class="btn-back" data-screen="screen-home">&larr;</button>
+            <button type="button" class="btn-back" data-screen="screen-home" aria-label="Back">&larr;</button>
             <h2>History</h2>
         </header>
         <div id="history-list" class="history-list"></div>
