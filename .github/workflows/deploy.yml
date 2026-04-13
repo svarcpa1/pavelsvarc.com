@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel previous runs when a new push arrives — prevents
+# concurrent FTP sessions that webglobe.cz rejects (530 error)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-php:
     name: PHP Lint
