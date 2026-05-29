@@ -89,7 +89,7 @@ async function checkActiveWorkout() {
 
             currentWorkout = {
                 id: w.id,
-                gym_id: null,
+                gym_id: w.gym_id,
                 gym_name: w.gym_name,
                 started_at: w.started_at,
             };
@@ -417,6 +417,8 @@ async function openExerciseModal(exercise = null) {
             }
             // Clear body part validation error when selecting
             document.getElementById("body-part-grid").classList.remove("validation-error");
+            // Body parts are part of the match criteria — refresh the last weight hint
+            refreshLastWeight();
         });
     });
 
@@ -437,6 +439,35 @@ async function fetchAutocomplete(query) {
         renderAutocomplete(results);
     } catch {
         hideAutocomplete();
+    }
+}
+
+// Fetch and show the last recorded weight for the current name + machine + gym + body parts combo.
+// Only shows a result when all four match a previous workout (current workout excluded).
+async function refreshLastWeight() {
+    const name    = document.getElementById("exercise-name").value.trim();
+    const machine = document.getElementById("exercise-machine").value.trim();
+    const el      = document.getElementById("last-weight-info");
+
+    // All four criteria must be present to attempt a match
+    if (!name || !currentWorkout?.gym_id || selectedBodyPartIds.length === 0) {
+        el.hidden = true;
+        return;
+    }
+
+    try {
+        const params = new URLSearchParams({
+            name,
+            gym_id:          currentWorkout.gym_id,
+            exclude_workout: currentWorkout.id,
+            body_parts:      selectedBodyPartIds.join(","),
+        });
+        if (machine) params.set("machine", machine);
+
+        const result = await api(`exercises.php?${params}`);
+        showLastWeight(result.max_weight, result.last_date);
+    } catch {
+        el.hidden = true;
     }
 }
 
@@ -469,7 +500,7 @@ function selectAutocomplete(item) {
     nameInput.value = item.dataset.name;
     nameInput.classList.remove("validation-error");
     hideAutocomplete();
-    showLastWeight(item.dataset.weight, item.dataset.date);
+    refreshLastWeight();
 }
 
 function hideAutocomplete() {
@@ -501,7 +532,8 @@ async function saveExercise() {
     const nameInput = document.getElementById("exercise-name");
     const name = nameInput.value.trim();
     const machine = document.getElementById("exercise-machine").value.trim();
-    const weight = document.getElementById("exercise-weight").value;
+    // Normalize decimal separator: accept both "," (CZ locale) and "." before parsing
+    const weight = document.getElementById("exercise-weight").value.trim().replace(",", ".");
 
     // Validation with feedback
     clearValidation();
@@ -751,19 +783,19 @@ document.addEventListener("DOMContentLoaded", () => {
         // Delay to allow click on dropdown item to fire first
         setTimeout(() => {
             hideAutocomplete();
-            // Show last weight on blur if exact match exists
             const query = exerciseNameInput.value.trim();
-            if (query.length >= 2 && document.getElementById("last-weight-info").hidden) {
-                api(`exercises.php?search=${encodeURIComponent(query)}`)
-                    .then(results => {
-                        const exact = results.find(r => r.name.toLowerCase() === query.toLowerCase());
-                        if (exact) {
-                            showLastWeight(exact.max_weight, exact.last_date);
-                        }
-                    })
-                    .catch(() => {});
+            if (query.length >= 2) {
+                refreshLastWeight();
+            } else {
+                document.getElementById("last-weight-info").hidden = true;
             }
         }, 150);
+    });
+
+    document.getElementById("exercise-machine").addEventListener("blur", () => {
+        // Re-check last weight when machine field is settled — it is part of the match criteria
+        const name = document.getElementById("exercise-name").value.trim();
+        if (name.length >= 2) refreshLastWeight();
     });
 
     // Click outside autocomplete to dismiss

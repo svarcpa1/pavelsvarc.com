@@ -134,6 +134,64 @@ try {
     }
 
     if ($method === 'GET') {
+        // Exact last-weight lookup: ?name=X&gym_id=Y[&machine=Z][&exclude_workout=W]
+        // Returns the most recent weight for this exercise+machine+gym combo.
+        if (isset($_GET['name'])) {
+            $name    = trim($_GET['name']);
+            $gymId   = (int)($_GET['gym_id'] ?? 0);
+            $machine = (isset($_GET['machine']) && $_GET['machine'] !== '')
+                       ? trim($_GET['machine']) : null;
+            $excludeWorkoutId = (int)($_GET['exclude_workout'] ?? 0);
+
+            // Parse and sort body part IDs (all cast to int — safe to interpolate)
+            $rawBp = $_GET['body_parts'] ?? '';
+            $bodyPartIds = $rawBp !== ''
+                ? array_values(array_unique(array_map('intval', array_filter(explode(',', $rawBp)))))
+                : [];
+            sort($bodyPartIds);
+            // Build a PostgreSQL int[] literal, e.g. '{1,3,5}'
+            $bodyPartLiteral = '{' . implode(',', $bodyPartIds) . '}';
+
+            if (!$name || !$gymId || empty($bodyPartIds)) {
+                echo json_encode(['max_weight' => null, 'last_date' => null]);
+                exit;
+            }
+
+            // IS NOT DISTINCT FROM gives NULL=NULL equality (null-safe machine match).
+            // LOWER() on both sides for case-insensitive comparison.
+            // Body parts are matched as an exact sorted set via ARRAY_AGG.
+            $sql = "
+                SELECT e.max_weight, w.started_at AS last_date
+                FROM ll_exercises e
+                JOIN ll_workouts w ON w.id = e.workout_id
+                WHERE LOWER(e.name) = LOWER(:name)
+                  AND w.gym_id = :gym_id
+                  AND (LOWER(e.machine) IS NOT DISTINCT FROM LOWER(:machine))
+                  AND (
+                      SELECT ARRAY_AGG(ebp.body_part_id ORDER BY ebp.body_part_id)
+                      FROM ll_exercise_body_parts ebp
+                      WHERE ebp.exercise_id = e.id
+                  ) = '{$bodyPartLiteral}'::int[]
+            ";
+
+            $params = ['name' => $name, 'gym_id' => $gymId, 'machine' => $machine];
+
+            if ($excludeWorkoutId > 0) {
+                $sql .= ' AND w.id != :exclude_workout';
+                $params['exclude_workout'] = $excludeWorkoutId;
+            }
+
+            $sql .= ' ORDER BY w.started_at DESC LIMIT 1';
+
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+            $result = $stmt->fetch();
+
+            echo json_encode($result ?: ['max_weight' => null, 'last_date' => null]);
+            exit;
+        }
+
+        // Autocomplete search: ?search=X
         $search = trim($_GET['search'] ?? '');
 
         if ($search === '') {

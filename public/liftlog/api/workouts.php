@@ -24,7 +24,7 @@ try {
             $id = (int)$_GET['id'];
 
             $stmt = $db->prepare('
-                SELECT w.id, w.started_at, w.finished_at, w.notes, g.name AS gym_name
+                SELECT w.id, w.gym_id, w.started_at, w.finished_at, w.notes, g.name AS gym_name
                 FROM ll_workouts w
                 JOIN ll_gyms g ON g.id = w.gym_id
                 WHERE w.id = :id
@@ -88,7 +88,7 @@ try {
         $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
 
         $stmt = $db->prepare('
-            SELECT w.id, w.started_at, w.finished_at, g.name AS gym_name,
+            SELECT w.id, w.gym_id, w.started_at, w.finished_at, g.name AS gym_name,
                    (SELECT COUNT(*) FROM ll_exercises e WHERE e.workout_id = w.id) AS exercise_count,
                    (SELECT ARRAY_AGG(DISTINCT ebp.body_part_id)
                     FROM ll_exercises e2
