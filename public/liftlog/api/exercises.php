@@ -134,6 +134,68 @@ try {
     }
 
     if ($method === 'GET') {
+        // Cascading suggestions from existing data (global, all gyms):
+        //   ?suggest=exercises[&body_parts=1,2]  -> distinct exercise names tagged
+        //        with ALL of the given body parts (no body_parts -> all names)
+        //   ?suggest=machines&name=X             -> distinct machines used for that
+        //        exercise name
+        if (isset($_GET['suggest'])) {
+            $what = $_GET['suggest'];
+
+            // Parse body part IDs (all cast to int -> safe to interpolate)
+            $rawBp = $_GET['body_parts'] ?? '';
+            $bodyPartIds = $rawBp !== ''
+                ? array_values(array_unique(array_map('intval', array_filter(explode(',', $rawBp)))))
+                : [];
+
+            if ($what === 'exercises') {
+                if (empty($bodyPartIds)) {
+                    $stmt = $db->query('SELECT DISTINCT name FROM ll_exercises ORDER BY name');
+                    echo json_encode($stmt->fetchAll(PDO::FETCH_COLUMN));
+                    exit;
+                }
+                $literal = '{' . implode(',', $bodyPartIds) . '}';
+                $count   = count($bodyPartIds);
+                // An exercise "has all" selected parts when the count of its body
+                // parts that intersect the selection equals the selection size.
+                $sql = "
+                    SELECT DISTINCT e.name
+                    FROM ll_exercises e
+                    WHERE (
+                        SELECT COUNT(DISTINCT ebp.body_part_id)
+                        FROM ll_exercise_body_parts ebp
+                        WHERE ebp.exercise_id = e.id
+                          AND ebp.body_part_id = ANY('{$literal}'::int[])
+                    ) = {$count}
+                    ORDER BY e.name
+                ";
+                $stmt = $db->query($sql);
+                echo json_encode($stmt->fetchAll(PDO::FETCH_COLUMN));
+                exit;
+            }
+
+            if ($what === 'machines') {
+                $name = trim($_GET['name'] ?? '');
+                if ($name === '') {
+                    echo json_encode([]);
+                    exit;
+                }
+                $stmt = $db->prepare('
+                    SELECT DISTINCT e.machine
+                    FROM ll_exercises e
+                    WHERE LOWER(e.name) = LOWER(:name)
+                      AND e.machine IS NOT NULL
+                    ORDER BY e.machine
+                ');
+                $stmt->execute(['name' => $name]);
+                echo json_encode($stmt->fetchAll(PDO::FETCH_COLUMN));
+                exit;
+            }
+
+            echo json_encode([]);
+            exit;
+        }
+
         // Exact last-weight lookup: ?name=X&gym_id=Y[&machine=Z][&exclude_workout=W]
         // Returns the most recent weight for this exercise+machine+gym combo.
         if (isset($_GET['name'])) {

@@ -12,7 +12,8 @@ let timerInterval = null;
 // Exercise modal state
 let selectedBodyPartIds = [];
 let editingExerciseId = null;
-let autocompleteTimer = null;
+let exerciseSuggestions = []; // distinct names for the current body-part selection
+let machineSuggestions = [];  // distinct machines for the current exercise name
 
 // ---- Screen management ----
 
@@ -97,7 +98,7 @@ async function checkActiveWorkout() {
 
             document.getElementById("workout-gym-name").textContent = currentWorkout.gym_name;
             renderExercises();
-            startTimer(new Date(currentWorkout.started_at));
+            startTimer(parseTs(currentWorkout.started_at));
             showScreen("screen-workout");
             return;
         }
@@ -173,7 +174,7 @@ async function startWorkout(gymId) {
 
     document.getElementById("workout-gym-name").textContent = currentWorkout.gym_name;
     renderExercises();
-    startTimer(new Date(currentWorkout.started_at));
+    startTimer(parseTs(currentWorkout.started_at));
     showScreen("screen-workout");
 }
 
@@ -208,7 +209,7 @@ function renderExercises() {
         const badges = (ex.body_parts || []).map(bp =>
             `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
         ).join("");
-        const weightStr = ex.max_weight !== null ? `${ex.max_weight} kg` : "";
+        const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg` : "";
 
         return `
             <div class="exercise-item" data-id="${ex.id}">
@@ -274,14 +275,14 @@ function showFinishSummary() {
     if (!currentWorkout) return;
 
     const summary = document.getElementById("finish-summary");
-    const elapsed = Math.floor((Date.now() - new Date(currentWorkout.started_at).getTime()) / 1000);
+    const elapsed = Math.floor((Date.now() - parseTs(currentWorkout.started_at).getTime()) / 1000);
     const mins = Math.floor(elapsed / 60);
 
     const exerciseRows = exercises.map(ex => {
         const badges = (ex.body_parts || []).map(bp =>
             `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
         ).join("");
-        const weightStr = ex.max_weight !== null ? `${ex.max_weight} kg` : "";
+        const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg` : "";
         return `
             <div class="finish-exercise-row">
                 <div>
@@ -366,8 +367,11 @@ async function openExerciseModal(exercise = null) {
     // Reset state
     selectedBodyPartIds = [];
     editingExerciseId = null;
+    exerciseSuggestions = [];
+    machineSuggestions = [];
     clearValidation();
     hideAutocomplete();
+    hideMachineDropdown();
     const lwi = document.getElementById("last-weight-info");
     if (lwi) lwi.hidden = true;
 
@@ -380,7 +384,7 @@ async function openExerciseModal(exercise = null) {
         titleEl.textContent = "Edit Exercise";
         document.getElementById("exercise-name").value = exercise.name || "";
         document.getElementById("exercise-machine").value = exercise.machine || "";
-        document.getElementById("exercise-weight").value = exercise.max_weight !== null ? exercise.max_weight : "";
+        document.getElementById("exercise-weight").value = exercise.max_weight !== null ? formatWeight(exercise.max_weight) : "";
         selectedBodyPartIds = (exercise.body_parts || []).map(bp => bp.id);
     } else {
         // Add mode
@@ -417,10 +421,15 @@ async function openExerciseModal(exercise = null) {
             }
             // Clear body part validation error when selecting
             document.getElementById("body-part-grid").classList.remove("validation-error");
-            // Body parts are part of the match criteria — refresh the last weight hint
+            // Body parts drive both the last-weight hint and the exercise suggestions
             refreshLastWeight();
+            loadExerciseSuggestions();
         });
     });
+
+    // Preload cascading suggestions for the current state
+    loadExerciseSuggestions();
+    if (editingExerciseId) loadMachineSuggestions();
 
     document.getElementById("modal-exercise").classList.add("active");
 }
@@ -428,18 +437,106 @@ async function openExerciseModal(exercise = null) {
 function closeExerciseModal() {
     document.getElementById("modal-exercise").classList.remove("active");
     hideAutocomplete();
-    clearTimeout(autocompleteTimer);
+    hideMachineDropdown();
 }
 
-// ---- Autocomplete + Last Weight ----
+// ---- Cascading suggestions (body part -> exercise -> machine) ----
 
-async function fetchAutocomplete(query) {
+// Load distinct exercise names for the current body-part selection (global data).
+async function loadExerciseSuggestions() {
     try {
-        const results = await api(`exercises.php?search=${encodeURIComponent(query)}`);
-        renderAutocomplete(results);
+        const params = new URLSearchParams({ suggest: "exercises" });
+        if (selectedBodyPartIds.length) params.set("body_parts", selectedBodyPartIds.join(","));
+        exerciseSuggestions = await api(`exercises.php?${params}`);
     } catch {
-        hideAutocomplete();
+        exerciseSuggestions = [];
     }
+    // Refresh the dropdown if the name field is the active input
+    if (document.activeElement === document.getElementById("exercise-name")) {
+        renderExerciseDropdown();
+    }
+}
+
+// Render the exercise-name dropdown, filtered live by whatever is typed.
+function renderExerciseDropdown() {
+    const input = document.getElementById("exercise-name");
+    const dropdown = document.getElementById("autocomplete-dropdown");
+    const q = input.value.trim().toLowerCase();
+    const matches = exerciseSuggestions.filter(n => n.toLowerCase().includes(q));
+    if (matches.length === 0) {
+        dropdown.hidden = true;
+        return;
+    }
+    dropdown.innerHTML = matches.map(n =>
+        `<div class="ac-item" data-name="${escapeHtml(n)}"><span class="ac-name">${escapeHtml(n)}</span></div>`
+    ).join("");
+    dropdown.hidden = false;
+    dropdown.querySelectorAll(".ac-item").forEach(item => {
+        // mousedown fires before blur, so focus stays put and selection sticks
+        item.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            selectExerciseSuggestion(item.dataset.name);
+        });
+    });
+}
+
+function selectExerciseSuggestion(name) {
+    const input = document.getElementById("exercise-name");
+    input.value = name;
+    input.classList.remove("validation-error");
+    hideAutocomplete();
+    refreshLastWeight();
+    loadMachineSuggestions();
+}
+
+// Load distinct machines used for the current exercise name (global data).
+async function loadMachineSuggestions() {
+    const name = document.getElementById("exercise-name").value.trim();
+    if (!name) {
+        machineSuggestions = [];
+        return;
+    }
+    try {
+        const params = new URLSearchParams({ suggest: "machines", name });
+        machineSuggestions = await api(`exercises.php?${params}`);
+    } catch {
+        machineSuggestions = [];
+    }
+    if (document.activeElement === document.getElementById("exercise-machine")) {
+        renderMachineDropdown();
+    }
+}
+
+function renderMachineDropdown() {
+    const input = document.getElementById("exercise-machine");
+    const dropdown = document.getElementById("machine-dropdown");
+    const q = input.value.trim().toLowerCase();
+    const matches = machineSuggestions.filter(m => m.toLowerCase().includes(q));
+    if (matches.length === 0) {
+        dropdown.hidden = true;
+        return;
+    }
+    dropdown.innerHTML = matches.map(m =>
+        `<div class="ac-item" data-machine="${escapeHtml(m)}"><span class="ac-name">${escapeHtml(m)}</span></div>`
+    ).join("");
+    dropdown.hidden = false;
+    dropdown.querySelectorAll(".ac-item").forEach(item => {
+        item.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            selectMachineSuggestion(item.dataset.machine);
+        });
+    });
+}
+
+function selectMachineSuggestion(machine) {
+    document.getElementById("exercise-machine").value = machine;
+    hideMachineDropdown();
+    refreshLastWeight();
+}
+
+function hideMachineDropdown() {
+    const dd = document.getElementById("machine-dropdown");
+    if (dd) dd.hidden = true;
 }
 
 // Fetch and show the last recorded weight for the current name + machine + gym + body parts combo.
@@ -471,38 +568,6 @@ async function refreshLastWeight() {
     }
 }
 
-function renderAutocomplete(results) {
-    const dropdown = document.getElementById("autocomplete-dropdown");
-    if (results.length === 0) {
-        hideAutocomplete();
-        return;
-    }
-    dropdown.innerHTML = results.map(r => {
-        const weightInfo = r.max_weight !== null
-            ? `<span class="ac-weight">${r.max_weight} kg</span>`
-            : "";
-        return `<div class="ac-item" data-name="${escapeHtml(r.name)}"
-                     data-weight="${r.max_weight ?? ""}"
-                     data-date="${r.last_date ?? ""}">
-                    <span class="ac-name">${escapeHtml(r.name)}</span>
-                    ${weightInfo}
-                </div>`;
-    }).join("");
-    dropdown.hidden = false;
-
-    dropdown.querySelectorAll(".ac-item").forEach(item => {
-        item.addEventListener("click", () => selectAutocomplete(item));
-    });
-}
-
-function selectAutocomplete(item) {
-    const nameInput = document.getElementById("exercise-name");
-    nameInput.value = item.dataset.name;
-    nameInput.classList.remove("validation-error");
-    hideAutocomplete();
-    refreshLastWeight();
-}
-
 function hideAutocomplete() {
     const dd = document.getElementById("autocomplete-dropdown");
     if (dd) dd.hidden = true;
@@ -515,11 +580,11 @@ function showLastWeight(weight, dateStr) {
         el.hidden = true;
         return;
     }
-    const date = new Date(dateStr);
+    const date = parseTs(dateStr);
     const formatted = date.toLocaleDateString("cs-CZ", {
         day: "numeric", month: "numeric", year: "numeric",
     });
-    el.textContent = `Last time: ${weight} kg (${formatted})`;
+    el.textContent = `Last time: ${formatWeight(weight)} kg (${formatted})`;
     el.hidden = false;
 }
 
@@ -609,7 +674,7 @@ async function showHistory() {
     }
 
     container.innerHTML = workouts.map(w => {
-        const date = new Date(w.started_at);
+        const date = parseTs(w.started_at);
         const dateStr = date.toLocaleDateString("cs-CZ", {
             day: "numeric", month: "numeric", year: "numeric",
         });
@@ -687,7 +752,7 @@ async function toggleHistoryDetail(item) {
                     const badges = (ex.body_parts || []).map(bp =>
                         `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
                     ).join("");
-                    const weightStr = ex.max_weight !== null ? `${ex.max_weight} kg` : "";
+                    const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg` : "";
                     return `
                         <div class="exercise-row">
                             <div>
@@ -715,7 +780,22 @@ async function toggleHistoryDetail(item) {
 function escapeHtml(text) {
     const div = document.createElement("div");
     div.textContent = text;
-    return div.innerHTML;
+    // div.innerHTML escapes &, <, > but not quotes — escape them too so the
+    // result is safe inside HTML attributes (e.g. data-name="...").
+    return div.innerHTML.replace(/"/g, "&quot;");
+}
+
+// Parse a PostgreSQL timestamp ("YYYY-MM-DD HH:MM:SS", space-separated). Safari/iOS
+// only accepts ISO 8601, so normalize the date/time separator to "T".
+function parseTs(ts) {
+    if (!ts) return new Date(NaN);
+    return new Date(String(ts).replace(" ", "T"));
+}
+
+// NUMERIC weights come back as strings like "60.00" — drop trailing zeros.
+function formatWeight(w) {
+    const n = parseFloat(w);
+    return Number.isFinite(n) ? String(n) : String(w);
 }
 
 // ---- Event Listeners ----
@@ -753,9 +833,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // Escape key closes modals + autocomplete
     document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") {
-            const dropdown = document.getElementById("autocomplete-dropdown");
-            if (!dropdown.hidden) {
+            const acOpen = !document.getElementById("autocomplete-dropdown").hidden;
+            const mOpen = !document.getElementById("machine-dropdown").hidden;
+            if (acOpen || mOpen) {
                 hideAutocomplete();
+                hideMachineDropdown();
                 return;
             }
             if (document.getElementById("modal-exercise").classList.contains("active")) {
@@ -766,43 +848,54 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Exercise name autocomplete
+    // Exercise name suggestions (open on focus, filter live)
     const exerciseNameInput = document.getElementById("exercise-name");
 
-    exerciseNameInput.addEventListener("input", () => {
-        clearTimeout(autocompleteTimer);
-        const query = exerciseNameInput.value.trim();
-        if (query.length < 2) {
-            hideAutocomplete();
-            return;
-        }
-        autocompleteTimer = setTimeout(() => fetchAutocomplete(query), 300);
-    });
+    exerciseNameInput.addEventListener("focus", renderExerciseDropdown);
+    exerciseNameInput.addEventListener("input", renderExerciseDropdown);
 
     exerciseNameInput.addEventListener("blur", () => {
-        // Delay to allow click on dropdown item to fire first
+        // Delay so a mousedown selection can complete first
         setTimeout(() => {
             hideAutocomplete();
             const query = exerciseNameInput.value.trim();
             if (query.length >= 2) {
                 refreshLastWeight();
+                loadMachineSuggestions();
             } else {
                 document.getElementById("last-weight-info").hidden = true;
             }
         }, 150);
     });
 
-    document.getElementById("exercise-machine").addEventListener("blur", () => {
-        // Re-check last weight when machine field is settled — it is part of the match criteria
-        const name = document.getElementById("exercise-name").value.trim();
-        if (name.length >= 2) refreshLastWeight();
+    // Machine suggestions (depend on the chosen exercise name)
+    const exerciseMachineInput = document.getElementById("exercise-machine");
+
+    exerciseMachineInput.addEventListener("focus", () => {
+        if (machineSuggestions.length) {
+            renderMachineDropdown();
+        } else {
+            loadMachineSuggestions();
+        }
+    });
+    exerciseMachineInput.addEventListener("input", renderMachineDropdown);
+
+    exerciseMachineInput.addEventListener("blur", () => {
+        setTimeout(() => {
+            hideMachineDropdown();
+            const name = document.getElementById("exercise-name").value.trim();
+            if (name.length >= 2) refreshLastWeight();
+        }, 150);
     });
 
-    // Click outside autocomplete to dismiss
+    // Click outside a suggestion wrapper dismisses that dropdown
     document.addEventListener("click", (e) => {
-        const dropdown = document.getElementById("autocomplete-dropdown");
-        if (!dropdown.hidden && !e.target.closest(".autocomplete-wrapper")) {
+        const wrapper = e.target.closest(".autocomplete-wrapper");
+        if (!wrapper || !wrapper.contains(document.getElementById("autocomplete-dropdown"))) {
             hideAutocomplete();
+        }
+        if (!wrapper || !wrapper.contains(document.getElementById("machine-dropdown"))) {
+            hideMachineDropdown();
         }
     });
 
