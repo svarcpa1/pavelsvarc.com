@@ -22,6 +22,7 @@ export default [
                 Error: "readonly",
                 parseInt: "readonly",
                 encodeURIComponent: "readonly",
+                URLSearchParams: "readonly",
             },
         },
         rules: {
