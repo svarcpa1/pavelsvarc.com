@@ -775,6 +775,96 @@ async function toggleHistoryDetail(item) {
     detail.hidden = false;
 }
 
+// ---- Dashboard (analytics) ----
+
+async function showDashboard() {
+    const container = document.getElementById("dashboard-content");
+    container.innerHTML = '<p class="empty-state">Loading…</p>';
+    showScreen("screen-dashboard");
+
+    let stats;
+    try {
+        stats = await api("stats.php");
+    } catch {
+        container.innerHTML = '<p class="empty-state">Could not load stats.</p>';
+        return;
+    }
+    renderDashboard(stats);
+}
+
+function statCard(value, label) {
+    return `<div class="stat-card">
+                <div class="stat-value">${escapeHtml(String(value))}</div>
+                <div class="stat-label">${escapeHtml(label)}</div>
+            </div>`;
+}
+
+// Short month label from a "YYYY-MM" string.
+function monthLabel(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" });
+}
+
+// Horizontal bar chart from [{ label, value }]. Bars scale to the largest value.
+function barChart(items, capitalize = false) {
+    if (!items.some(i => i.value > 0)) {
+        return '<p class="empty-state">No data yet.</p>';
+    }
+    const max = Math.max(1, ...items.map(i => i.value));
+    const cls = capitalize ? " bar-chart--capitalize" : "";
+    const rows = items.map(i => {
+        const pct = i.value > 0 ? Math.max(4, (i.value / max) * 100) : 0;
+        return `<div class="bar-row">
+                    <span class="bar-label">${escapeHtml(i.label)}</span>
+                    <span class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></span>
+                    <span class="bar-value">${i.value}</span>
+                </div>`;
+    }).join("");
+    return `<div class="bar-chart${cls}">${rows}</div>`;
+}
+
+function renderDashboard(stats) {
+    const container = document.getElementById("dashboard-content");
+    const s = stats.summary || {};
+
+    const summary = `
+        <div class="stat-grid">
+            ${statCard(s.total_workouts ?? 0, "Workouts")}
+            ${statCard(s.workouts_30d ?? 0, "Last 30 days")}
+            ${statCard(s.total_exercises ?? 0, "Exercises")}
+            ${statCard(s.avg_duration_min != null ? `${s.avg_duration_min} min` : "—", "Avg duration")}
+        </div>`;
+
+    const freq = (stats.frequency || []).map(f => ({ label: monthLabel(f.month), value: Number(f.count) }));
+
+    const prs = stats.personal_records || [];
+    const prList = prs.length
+        ? `<div class="pr-list">${prs.map(r => `
+            <div class="pr-row">
+                <span class="pr-name">${escapeHtml(r.name)}</span>
+                <span class="pr-weight">${formatWeight(r.max_weight)} kg</span>
+            </div>`).join("")}</div>`
+        : '<p class="empty-state">No weights logged yet.</p>';
+
+    const balance = (stats.body_part_balance || []).map(b => ({ label: b.name, value: Number(b.count) }));
+
+    container.innerHTML = `
+        ${summary}
+        <section class="report">
+            <h3>Workouts per month</h3>
+            ${barChart(freq)}
+        </section>
+        <section class="report">
+            <h3>Personal records</h3>
+            ${prList}
+        </section>
+        <section class="report">
+            <h3>Muscle group balance</h3>
+            ${barChart(balance, true)}
+        </section>
+    `;
+}
+
 // ---- Utility ----
 
 function escapeHtml(text) {
@@ -811,6 +901,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-logout").addEventListener("click", logout);
     document.getElementById("btn-start").addEventListener("click", showGymPicker);
     document.getElementById("btn-history").addEventListener("click", showHistory);
+    document.getElementById("btn-dashboard").addEventListener("click", showDashboard);
 
     // Workout
     document.getElementById("btn-add-exercise").addEventListener("click", () => openExerciseModal());

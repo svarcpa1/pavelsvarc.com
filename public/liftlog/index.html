@@ -27,6 +27,7 @@
         <div class="home-actions">
             <button type="button" id="btn-start" class="btn btn-primary btn-large">Start Workout</button>
             <button type="button" id="btn-history" class="btn btn-secondary btn-large">History</button>
+            <button type="button" id="btn-dashboard" class="btn btn-secondary btn-large">Dashboard</button>
         </div>
     </section>
 
@@ -97,6 +98,15 @@
             </div>
         </div>
     </div>
+
+    <!-- Dashboard -->
+    <section id="screen-dashboard" class="screen" hidden>
+        <header class="app-header">
+            <button type="button" class="btn-back" data-screen="screen-home" aria-label="Back">&larr;</button>
+            <h2>Dashboard</h2>
+        </header>
+        <div id="dashboard-content" class="dashboard"></div>
+    </section>
 
     <!-- History -->
     <section id="screen-history" class="screen" hidden>
