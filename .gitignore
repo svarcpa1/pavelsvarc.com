@@ -16,6 +16,9 @@ Thumbs.db
 # Dependencies
 node_modules/
 vendor/
+# ...but track self-hosted browser libraries (shipped to the client, not Composer deps)
+!public/liftlog/js/vendor/
+!public/liftlog/js/vendor/**
 
 # Logs
 *.log

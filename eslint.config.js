@@ -1,5 +1,9 @@
 export default [
     {
+        // Third-party libraries are vendored and shipped as-is
+        ignores: ["public/**/vendor/**"],
+    },
+    {
         files: ["public/**/*.js"],
         languageOptions: {
             ecmaVersion: 2022,
@@ -23,6 +27,7 @@ export default [
                 parseInt: "readonly",
                 encodeURIComponent: "readonly",
                 URLSearchParams: "readonly",
+                Chart: "readonly",
             },
         },
         rules: {
