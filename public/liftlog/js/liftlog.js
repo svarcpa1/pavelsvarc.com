@@ -797,8 +797,9 @@ async function showDashboard() {
     renderDashboard(stats);
 }
 
-function statCard(value, label) {
+function statCard(value, label, icon, tint) {
     return `<div class="stat-card">
+                <div class="stat-icon" style="background:${tint}">${icon}</div>
                 <div class="stat-value">${escapeHtml(String(value))}</div>
                 <div class="stat-label">${escapeHtml(label)}</div>
             </div>`;
@@ -824,10 +825,10 @@ function renderDashboard(stats) {
 
     const summary = `
         <div class="stat-grid">
-            ${statCard(s.total_workouts ?? 0, "Workouts")}
-            ${statCard(s.workouts_30d ?? 0, "Last 30 days")}
-            ${statCard(s.total_exercises ?? 0, "Exercises")}
-            ${statCard(s.avg_duration_min != null ? `${s.avg_duration_min} min` : "—", "Avg duration")}
+            ${statCard(s.total_workouts ?? 0, "Workouts", "🏋️", "rgba(33,150,243,0.14)")}
+            ${statCard(s.workouts_30d ?? 0, "Last 30 days", "📅", "rgba(76,175,80,0.16)")}
+            ${statCard(s.total_exercises ?? 0, "Exercises", "💪", "rgba(255,152,0,0.18)")}
+            ${statCard(s.avg_duration_min != null ? `${s.avg_duration_min} min` : "—", "Avg duration", "⏱️", "rgba(156,39,176,0.14)")}
         </div>`;
 
     const freq = stats.frequency || [];
