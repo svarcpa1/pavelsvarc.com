@@ -7,7 +7,7 @@ require_once __DIR__ . '/db.php';
 
 try {
     $db = getDb();
-    $stmt = $db->query('SELECT id, title, description, url, tags, sort_order FROM projects WHERE visible = true ORDER BY sort_order ASC, created_at DESC');
+    $stmt = $db->query('SELECT id, title, description, url, tags, category, sort_order FROM projects WHERE visible = true ORDER BY sort_order ASC, created_at DESC');
     $projects = $stmt->fetchAll();
 
     // Parse PostgreSQL array format for tags

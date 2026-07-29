@@ -66,17 +66,78 @@ header {
     color: #444;
 }
 
-/* Project tiles */
+/* Project groups (Public / Private) */
 .projects {
     max-width: 960px;
     margin: 0 auto;
     padding: 0 2rem 4rem;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+.project-group {
+    margin-bottom: 3rem;
+}
+
+.group-title {
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #aaa;
+    margin-bottom: 1rem;
+}
+
+/* Carousel */
+.carousel-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.carousel {
+    display: flex;
     gap: 1.5rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    padding: 0.5rem 0.25rem;
+    flex: 1;
+    scrollbar-width: none;
+}
+
+.carousel::-webkit-scrollbar {
+    display: none;
+}
+
+.carousel-arrow {
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid #e8e8e8;
+    border-radius: 50%;
+    background: #fff;
+    color: #888;
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.2s, color 0.2s;
+}
+
+.carousel-arrow:hover {
+    border-color: #ccc;
+    color: #444;
+}
+
+.carousel-arrow[hidden] {
+    display: none;
 }
 
 .tile {
+    flex: 0 0 300px;
+    max-width: 300px;
+    scroll-snap-align: start;
     border: 1px solid #e8e8e8;
     border-radius: 8px;
     padding: 1.5rem;
@@ -91,7 +152,7 @@ header {
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
-.tile h2 {
+.tile h3 {
     font-size: 1.1rem;
     font-weight: 500;
     margin-bottom: 0.5rem;
@@ -118,7 +179,6 @@ header {
     text-align: center;
     color: #ccc;
     font-size: 0.9rem;
-    grid-column: 1 / -1;
     padding: 2rem;
 }
 
@@ -129,6 +189,21 @@ body.dark {
 }
 
 body.dark .hero h1 {
+    color: #ccc;
+}
+
+body.dark .group-title {
+    color: #666;
+}
+
+body.dark .carousel-arrow {
+    border-color: #333;
+    background: #222;
+    color: #888;
+}
+
+body.dark .carousel-arrow:hover {
+    border-color: #555;
     color: #ccc;
 }
 
@@ -190,7 +265,11 @@ body.dark .projects-empty {
     }
 
     .projects {
-        grid-template-columns: 1fr;
         padding: 0 1.5rem 3rem;
+    }
+
+    .tile {
+        flex-basis: 82vw;
+        max-width: 82vw;
     }
 }
