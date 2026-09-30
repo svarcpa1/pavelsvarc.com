@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>LiftLog</title>
-    <link rel="stylesheet" href="css/liftlog.css?v=20260930b">
+    <link rel="stylesheet" href="css/liftlog.css?v=20260930c">
 </head>
 <body>
     <!-- Login -->
     <section id="screen-login" class="screen">
         <div class="login-container">
-            <h1>LiftLog</h1>
+            <h1 class="brand">🏋️ LiftLog</h1>
             <label for="pin-input" class="sr-only">PIN</label>
             <input type="password" id="pin-input" placeholder="Enter PIN" autocomplete="off">
             <button type="button" id="btn-login" class="btn btn-primary">Enter</button>
@@ -21,14 +21,14 @@
     <!-- Home -->
     <section id="screen-home" class="screen" hidden>
         <header class="app-header">
-            <h1>LiftLog</h1>
+            <h1 class="brand">🏋️ LiftLog</h1>
             <button type="button" class="sync-pill" hidden>📱 0 waiting</button>
             <button type="button" id="btn-logout" class="btn-link">Logout</button>
         </header>
         <div class="home-actions">
-            <button type="button" id="btn-start" class="btn btn-primary btn-large">Start Workout</button>
-            <button type="button" id="btn-history" class="btn btn-secondary btn-large">History</button>
-            <button type="button" id="btn-dashboard" class="btn btn-secondary btn-large">Dashboard</button>
+            <button type="button" id="btn-start" class="btn btn-primary btn-large btn-hero">💪 Start Workout</button>
+            <button type="button" id="btn-history" class="btn btn-secondary btn-large btn-tile">📜 History</button>
+            <button type="button" id="btn-dashboard" class="btn btn-secondary btn-large btn-tile">📊 Dashboard</button>
         </div>
     </section>
 
@@ -130,6 +130,6 @@
     </section>
 
     <script src="js/vendor/chart.umd.min.js?v=4.4.6"></script>
-    <script src="js/liftlog.js?v=20260930b"></script>
+    <script src="js/liftlog.js?v=20260930c"></script>
 </body>
 </html>

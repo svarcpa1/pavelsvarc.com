@@ -8,8 +8,13 @@ const HINT_TIMEOUT_MS = 5000;  // suggestions / last-weight hints: fail fast, ne
 const SYNC_INTERVAL_MS = 30000;
 
 // Dashboard chart styling
-const CHART_INK = "#222";
-const CHART_PALETTE = ["#222", "#4caf50", "#2196f3", "#ff9800", "#9c27b0", "#00bcd4", "#e91e63"];
+const CHART_INK = "#6c5ce7"; // accent violet (matches --accent in CSS)
+const CHART_PALETTE = ["#6c5ce7", "#ff6b9d", "#10b981", "#ff9f43", "#3b82f6", "#eab308", "#06b6d4"];
+// One colour per body part, shared with the CSS badges ([data-part])
+const PART_COLORS = {
+    legs: "#ff9f43", back: "#3b82f6", shoulders: "#a855f7", chest: "#f43f5e",
+    core: "#eab308", biceps: "#10b981", triceps: "#06b6d4",
+};
 let dashboardCharts = []; // live Chart.js instances, destroyed before re-render
 let exerciseCharts = [];  // same, for the exercise progress screen
 
@@ -193,8 +198,8 @@ async function showGymPicker() {
     }
 
     const container = document.getElementById("gym-list");
-    container.innerHTML = gyms.map(g =>
-        `<div class="gym-card" data-id="${g.id}">${escapeHtml(g.name)}</div>`
+    container.innerHTML = gyms.map((g, i) =>
+        `<div class="gym-card" data-id="${g.id}" data-tone="${i % 5}"><span class="gym-pin">📍</span>${escapeHtml(g.name)}</div>`
     ).join("");
 
     container.querySelectorAll(".gym-card").forEach(card => {
@@ -256,13 +261,13 @@ function renderExercises() {
 
     container.innerHTML = exercises.map(ex => {
         const badges = (ex.body_parts || []).map(bp =>
-            `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
+            partBadge(bp.name)
         ).join("");
         const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg${recordMark(ex)}` : "";
         const pendingStr = ex.pending ? '<span class="pending-mark">📱 on phone</span>' : "";
 
         return `
-            <div class="exercise-item" data-id="${ex.id}">
+            <div class="exercise-item" data-id="${ex.id}" data-part="${escapeHtml(ex.body_parts?.[0]?.name || "")}">
                 <div class="exercise-item-content">
                     <div class="exercise-name">${escapeHtml(ex.name)}</div>
                     <div class="exercise-meta">
@@ -339,7 +344,7 @@ function showFinishSummary() {
 
     const exerciseRows = exercises.map(ex => {
         const badges = (ex.body_parts || []).map(bp =>
-            `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
+            partBadge(bp.name)
         ).join("");
         const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg${recordMark(ex)}` : "";
         return `
@@ -502,7 +507,7 @@ async function openExerciseModal(exercise = null) {
     grid.innerHTML = bodyParts.map(bp => {
         const selected = selectedBodyPartIds.includes(bp.id) ? " selected" : "";
         const trained = trainedBodyPartIds.has(bp.id) ? " trained" : "";
-        return `<button class="body-part-btn${selected}${trained}" data-id="${bp.id}">${escapeHtml(bp.name)}</button>`;
+        return `<button class="body-part-btn${selected}${trained}" data-id="${bp.id}" data-part="${escapeHtml(bp.name)}">${escapeHtml(bp.name)}</button>`;
     }).join("");
 
     grid.querySelectorAll(".body-part-btn").forEach(btn => {
@@ -830,6 +835,7 @@ async function withSavingUi(request, allowLocal) {
 
 function announceRecord(saved) {
     if (!saved || !saved.is_record) return;
+    burstConfetti();
     const label = saved.machine ? `${saved.name} · ${saved.machine}` : saved.name;
     showToast(
         `🎉 New record! ${label}: ${formatWeight(saved.max_weight)} kg (was ${formatWeight(saved.previous_best)} kg)`,
@@ -1065,7 +1071,7 @@ async function toggleHistoryDetail(item) {
             } else {
                 detail.innerHTML = workout.exercises.map(ex => {
                     const badges = (ex.body_parts || []).map(bp =>
-                        `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
+                        partBadge(bp.name)
                     ).join("");
                     const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg${recordMark(ex)}` : "";
                     return `
@@ -1202,7 +1208,7 @@ function renderDashboard(stats) {
             datasets: [{
                 data: freq.map(f => Number(f.count)),
                 borderColor: CHART_INK,
-                backgroundColor: "rgba(34,34,34,0.08)",
+                backgroundColor: "rgba(108,92,231,0.12)",
                 fill: true,
                 tension: 0.3,
                 pointBackgroundColor: CHART_INK,
@@ -1231,7 +1237,8 @@ function renderDashboard(stats) {
                 datasets: partNames.map((name, i) => ({
                     label: capitalize(name),
                     data: weeks.map(wk => countOf.get(`${wk}|${name}`) || 0),
-                    backgroundColor: CHART_PALETTE[i % CHART_PALETTE.length],
+                    backgroundColor: PART_COLORS[name] || CHART_PALETTE[i % CHART_PALETTE.length],
+                    borderRadius: 3,
                 })),
             },
             options: {
@@ -1342,7 +1349,7 @@ function renderExerciseProgress(data) {
     }
 
     const badges = (data.body_parts || []).map(bp =>
-        `<span class="body-part-badge">${escapeHtml(bp)}</span>`
+        partBadge(bp)
     ).join("");
 
     const weighted = sessions.filter(s => s.max_weight !== null);
@@ -1495,6 +1502,32 @@ function formatDate(ts) {
 // Case-insensitive, null-safe text match (null and "" count as equal).
 function sameText(a, b) {
     return (a || "").toLowerCase() === (b || "").toLowerCase();
+}
+
+// Coloured body-part badge (colour comes from CSS via data-part).
+function partBadge(name) {
+    return `<span class="body-part-badge" data-part="${escapeHtml(name)}">${escapeHtml(name)}</span>`;
+}
+
+// Little confetti burst for a new record. Pure CSS animation, cleans itself up;
+// skipped when the phone asks for reduced motion.
+function burstConfetti() {
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const colors = Object.values(PART_COLORS);
+    const layer = document.createElement("div");
+    layer.className = "confetti";
+    for (let i = 0; i < 40; i++) {
+        const piece = document.createElement("i");
+        piece.style.left = `${Math.random() * 100}%`;
+        piece.style.background = colors[i % colors.length];
+        piece.style.animationDelay = `${Math.random() * 0.3}s`;
+        piece.style.animationDuration = `${1.2 + Math.random() * 0.9}s`;
+        piece.style.setProperty("--drift", `${(Math.random() - 0.5) * 160}px`);
+        piece.style.setProperty("--spin", `${(Math.random() - 0.5) * 1080}deg`);
+        layer.appendChild(piece);
+    }
+    document.body.appendChild(layer);
+    setTimeout(() => layer.remove(), 2600);
 }
 
 // Trophy after the weight of a record-setting entry.
