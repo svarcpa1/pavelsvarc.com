@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>LiftLog</title>
-    <link rel="stylesheet" href="css/liftlog.css?v=20260530">
+    <link rel="stylesheet" href="css/liftlog.css?v=20260930">
 </head>
 <body>
     <!-- Login -->
@@ -108,6 +108,15 @@
         <div id="dashboard-content" class="dashboard"></div>
     </section>
 
+    <!-- Exercise progress -->
+    <section id="screen-exercise" class="screen" hidden>
+        <header class="app-header">
+            <button type="button" id="btn-exercise-back" class="btn-back" data-screen="screen-dashboard" aria-label="Back">&larr;</button>
+            <h2 id="exercise-title">Exercise</h2>
+        </header>
+        <div id="exercise-content" class="dashboard"></div>
+    </section>
+
     <!-- History -->
     <section id="screen-history" class="screen" hidden>
         <header class="app-header">
@@ -118,6 +127,6 @@
     </section>
 
     <script src="js/vendor/chart.umd.min.js?v=4.4.6"></script>
-    <script src="js/liftlog.js?v=20260530"></script>
+    <script src="js/liftlog.js?v=20260930"></script>
 </body>
 </html>

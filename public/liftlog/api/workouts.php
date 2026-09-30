@@ -12,6 +12,7 @@ if (empty($_SESSION['liftlog_authenticated'])) {
 }
 
 require_once __DIR__ . '/../../api/db.php';
+require_once __DIR__ . '/_records.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -40,8 +41,10 @@ try {
 
             // Fetch exercises
             $stmt = $db->prepare('
-                SELECT e.id, e.name, e.machine, e.max_weight
+                WITH ' . LL_RECORDS_CTE . '
+                SELECT e.id, e.name, e.machine, e.max_weight, r.is_record
                 FROM ll_exercises e
+                JOIN ll_records r ON r.id = e.id
                 WHERE e.workout_id = :workout_id
                 ORDER BY e.sort_order ASC, e.id ASC
             ');

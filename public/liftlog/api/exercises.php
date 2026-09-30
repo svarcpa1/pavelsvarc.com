@@ -12,6 +12,7 @@ if (empty($_SESSION['liftlog_authenticated'])) {
 }
 
 require_once __DIR__ . '/../../api/db.php';
+require_once __DIR__ . '/_records.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -78,6 +79,7 @@ try {
         $db->commit();
 
         $exercise['body_parts'] = getExerciseBodyParts($db, $exercise['id']);
+        $exercise += getRecordInfo($db, (int)$exercise['id']);
 
         echo json_encode($exercise);
         exit;
@@ -128,6 +130,7 @@ try {
         $db->commit();
 
         $exercise['body_parts'] = getExerciseBodyParts($db, $id);
+        $exercise += getRecordInfo($db, $id);
 
         echo json_encode($exercise);
         exit;

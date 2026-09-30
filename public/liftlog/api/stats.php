@@ -12,9 +12,46 @@ if (empty($_SESSION['liftlog_authenticated'])) {
 }
 
 require_once __DIR__ . '/../../api/db.php';
+require_once __DIR__ . '/_records.php';
 
 try {
     $db = getDb();
+
+    // ---- Single exercise progress: ?exercise=Name ----
+    // Every session of that exercise (all machines, all gyms), oldest first.
+    if (isset($_GET['exercise'])) {
+        $name = trim($_GET['exercise']);
+
+        $stmt = $db->prepare('
+            WITH ' . LL_RECORDS_CTE . '
+            SELECT w.started_at, g.name AS gym, e.machine, e.max_weight, r.is_record
+            FROM ll_exercises e
+            JOIN ll_workouts w ON w.id = e.workout_id
+            JOIN ll_gyms g ON g.id = w.gym_id
+            JOIN ll_records r ON r.id = e.id
+            WHERE LOWER(e.name) = LOWER(:name)
+            ORDER BY w.started_at, e.id
+        ');
+        $stmt->execute(['name' => $name]);
+        $sessions = $stmt->fetchAll();
+
+        $stmt = $db->prepare('
+            SELECT DISTINCT bp.name, bp.sort_order
+            FROM ll_exercises e
+            JOIN ll_exercise_body_parts ebp ON ebp.exercise_id = e.id
+            JOIN ll_body_parts bp ON bp.id = ebp.body_part_id
+            WHERE LOWER(e.name) = LOWER(:name)
+            ORDER BY bp.sort_order
+        ');
+        $stmt->execute(['name' => $name]);
+
+        echo json_encode([
+            'name'       => $name,
+            'body_parts' => array_column($stmt->fetchAll(), 'name'),
+            'sessions'   => $sessions,
+        ]);
+        exit;
+    }
 
     // ---- Summary tiles ----
     $summary = $db->query("
@@ -53,20 +90,85 @@ try {
         LIMIT 10
     ")->fetchAll();
 
-    // ---- Muscle group balance: exercises logged per body part ----
-    $balance = $db->query("
-        SELECT bp.name, COUNT(ebp.exercise_id) AS count
+    // ---- Days since each body part was last trained (NULL = never) ----
+    $daysSince = $db->query("
+        SELECT bp.name, CURRENT_DATE - MAX(w.started_at)::date AS days
         FROM ll_body_parts bp
         LEFT JOIN ll_exercise_body_parts ebp ON ebp.body_part_id = bp.id
+        LEFT JOIN ll_exercises e ON e.id = ebp.exercise_id
+        LEFT JOIN ll_workouts w ON w.id = e.workout_id
         GROUP BY bp.id, bp.name, bp.sort_order
         ORDER BY bp.sort_order
     ")->fetchAll();
 
+    // ---- Exercises per body part per week (last 12 weeks, zero-filled) ----
+    // An exercise tagged with several body parts counts for each of them.
+    $weekly = $db->query("
+        SELECT to_char(g.wk, 'YYYY-MM-DD') AS week, bp.name, COUNT(x.exercise_id) AS count
+        FROM generate_series(
+            date_trunc('week', CURRENT_DATE::timestamp) - INTERVAL '11 weeks',
+            date_trunc('week', CURRENT_DATE::timestamp),
+            INTERVAL '1 week'
+        ) AS g(wk)
+        CROSS JOIN ll_body_parts bp
+        LEFT JOIN (
+            SELECT date_trunc('week', w.started_at) AS wk, ebp.body_part_id, ebp.exercise_id
+            FROM ll_workouts w
+            JOIN ll_exercises e ON e.workout_id = w.id
+            JOIN ll_exercise_body_parts ebp ON ebp.exercise_id = e.id
+        ) x ON x.wk = g.wk AND x.body_part_id = bp.id
+        GROUP BY g.wk, bp.id, bp.name, bp.sort_order
+        ORDER BY g.wk, bp.sort_order
+    ")->fetchAll();
+
+    // ---- Exercise list: best, last and trend per exercise name ----
+    // Trend compares the last session with the previous one on the same machine.
+    $rows = $db->query("
+        SELECT e.name, e.machine, e.max_weight, w.started_at
+        FROM ll_exercises e
+        JOIN ll_workouts w ON w.id = e.workout_id
+        ORDER BY w.started_at DESC, e.id DESC
+    ")->fetchAll();
+
+    $byName = [];
+    foreach ($rows as $row) {
+        $key = strtolower($row['name']);
+        if (!isset($byName[$key])) {
+            $byName[$key] = [
+                'name'         => $row['name'],
+                'times'        => 0,
+                'best_weight'  => null,
+                'last_date'    => $row['started_at'],
+                'last_weight'  => $row['max_weight'],
+                'last_machine' => $row['machine'],
+                'trend'        => null,
+            ];
+        }
+        $ex = &$byName[$key];
+        $ex['times']++;
+        if ($row['max_weight'] !== null
+            && ($ex['best_weight'] === null || (float)$row['max_weight'] > (float)$ex['best_weight'])) {
+            $ex['best_weight'] = $row['max_weight'];
+        }
+        // First earlier row on the same machine decides the trend
+        if ($ex['times'] > 1 && $ex['trend'] === null
+            && $ex['last_weight'] !== null && $row['max_weight'] !== null
+            && strtolower($row['machine'] ?? '') === strtolower($ex['last_machine'] ?? '')) {
+            $diff = (float)$ex['last_weight'] - (float)$row['max_weight'];
+            $ex['trend'] = $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat');
+        }
+        unset($ex);
+    }
+    $exerciseList = array_values($byName);
+    usort($exerciseList, fn($a, $b) => [$b['times'], $a['name']] <=> [$a['times'], $b['name']]);
+
     echo json_encode([
-        'summary'          => $summary,
-        'frequency'        => $frequency,
-        'personal_records' => $records,
-        'body_part_balance' => $balance,
+        'summary'           => $summary,
+        'frequency'         => $frequency,
+        'personal_records'  => $records,
+        'days_since'        => $daysSince,
+        'weekly_body_parts' => $weekly,
+        'exercises'         => $exerciseList,
     ]);
 
 } catch (Exception $e) {

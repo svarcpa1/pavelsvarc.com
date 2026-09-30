@@ -7,6 +7,7 @@ const TOTAL_BODY_PARTS = 7;
 const CHART_INK = "#222";
 const CHART_PALETTE = ["#222", "#4caf50", "#2196f3", "#ff9800", "#9c27b0", "#00bcd4", "#e91e63"];
 let dashboardCharts = []; // live Chart.js instances, destroyed before re-render
+let exerciseCharts = [];  // same, for the exercise progress screen
 
 let currentWorkout = null; // { id, gym_id, gym_name, started_at }
 let exercises = [];        // exercises in current workout
@@ -29,7 +30,7 @@ function showScreen(id) {
 
 // ---- Toast notifications ----
 
-function showToast(message, type = "error") {
+function showToast(message, type = "error", durationMs = 3000) {
     // Remove existing toast
     const existing = document.querySelector(".toast");
     if (existing) existing.remove();
@@ -43,7 +44,7 @@ function showToast(message, type = "error") {
     setTimeout(() => {
         toast.classList.remove("visible");
         setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    }, durationMs);
 }
 
 // ---- API helpers ----
@@ -214,7 +215,7 @@ function renderExercises() {
         const badges = (ex.body_parts || []).map(bp =>
             `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
         ).join("");
-        const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg` : "";
+        const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg${recordMark(ex)}` : "";
 
         return `
             <div class="exercise-item" data-id="${ex.id}">
@@ -287,7 +288,7 @@ function showFinishSummary() {
         const badges = (ex.body_parts || []).map(bp =>
             `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
         ).join("");
-        const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg` : "";
+        const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg${recordMark(ex)}` : "";
         return `
             <div class="finish-exercise-row">
                 <div>
@@ -300,10 +301,16 @@ function showFinishSummary() {
         `;
     }).join("");
 
+    const recordCount = exercises.filter(ex => ex.is_record).length;
+    const recordLine = recordCount
+        ? `<div class="finish-records">🏆 ${recordCount} new record${recordCount > 1 ? "s" : ""}</div>`
+        : "";
+
     summary.innerHTML = `
         <div class="finish-meta">
             <div class="finish-gym">${escapeHtml(currentWorkout.gym_name)}</div>
             <div class="finish-duration">${mins} min · ${exercises.length} exercises</div>
+            ${recordLine}
         </div>
         ${exercises.length > 0
             ? `<div class="finish-exercises">${exerciseRows}</div>`
@@ -628,6 +635,7 @@ async function saveExercise() {
     saveBtn.disabled = true;
 
     try {
+        let saved;
         if (editingExerciseId) {
             const updated = await api("exercises.php", {
                 method: "PUT",
@@ -642,6 +650,7 @@ async function saveExercise() {
 
             const idx = exercises.findIndex(x => x.id === editingExerciseId);
             if (idx !== -1) exercises[idx] = updated;
+            saved = updated;
         } else {
             const exercise = await api("exercises.php", {
                 method: "POST",
@@ -655,10 +664,20 @@ async function saveExercise() {
             });
 
             exercises.push(exercise);
+            saved = exercise;
         }
 
         renderExercises();
         closeExerciseModal();
+
+        if (saved.is_record) {
+            const label = saved.machine ? `${saved.name} · ${saved.machine}` : saved.name;
+            showToast(
+                `🎉 New record! ${label}: ${formatWeight(saved.max_weight)} kg (was ${formatWeight(saved.previous_best)} kg)`,
+                "success",
+                4500,
+            );
+        }
     } catch {
         // Error already shown by api()
     } finally {
@@ -757,9 +776,9 @@ async function toggleHistoryDetail(item) {
                     const badges = (ex.body_parts || []).map(bp =>
                         `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
                     ).join("");
-                    const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg` : "";
+                    const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg${recordMark(ex)}` : "";
                     return `
-                        <div class="exercise-row">
+                        <div class="exercise-row exercise-link" data-name="${escapeHtml(ex.name)}">
                             <div>
                                 ${badges}
                                 ${escapeHtml(ex.name)}
@@ -769,6 +788,10 @@ async function toggleHistoryDetail(item) {
                         </div>
                     `;
                 }).join("");
+
+                detail.querySelectorAll(".exercise-link").forEach(row => {
+                    row.addEventListener("click", () => showExerciseProgress(row.dataset.name, "screen-history"));
+                });
             }
 
             detail.dataset.loaded = "true";
@@ -833,25 +856,52 @@ function renderDashboard(stats) {
 
     const freq = stats.frequency || [];
     const prs = stats.personal_records || [];
-    const balance = (stats.body_part_balance || []).filter(b => Number(b.count) > 0);
+    const daysSince = stats.days_since || [];
+    const weekly = stats.weekly_body_parts || [];
+    const exerciseList = stats.exercises || [];
 
     const empty = '<p class="empty-state">No data yet.</p>';
 
     container.innerHTML = `
         ${summary}
         <section class="report">
+            <h3>Days since last trained</h3>
+            <div class="days-grid">${daysSince.map(daysChip).join("")}</div>
+        </section>
+        <section class="report">
+            <h3>Exercises</h3>
+            ${exerciseList.length ? `
+                <input type="text" id="exercise-search" class="search-input" placeholder="Search exercises" autocomplete="off">
+                <div id="exercise-overview" class="ex-list">${exerciseList.map(exerciseListItem).join("")}</div>
+            ` : empty}
+        </section>
+        <section class="report">
             <h3>Workouts per month</h3>
             <div class="chart-box"><canvas id="chart-frequency"></canvas></div>
+        </section>
+        <section class="report">
+            <h3>Body parts per week</h3>
+            ${weekly.some(w => Number(w.count) > 0) ? '<div class="chart-box chart-box--tall"><canvas id="chart-weekly"></canvas></div>' : empty}
         </section>
         <section class="report">
             <h3>Personal records</h3>
             ${prs.length ? '<div class="chart-box chart-box--tall"><canvas id="chart-records"></canvas></div>' : empty}
         </section>
-        <section class="report">
-            <h3>Muscle group balance</h3>
-            ${balance.length ? '<div class="chart-box"><canvas id="chart-balance"></canvas></div>' : empty}
-        </section>
     `;
+
+    // ---- Exercise list: search + tap to open progress ----
+    const overview = document.getElementById("exercise-overview");
+    if (overview) {
+        overview.querySelectorAll(".ex-list-item").forEach(item => {
+            item.addEventListener("click", () => showExerciseProgress(item.dataset.name, "screen-dashboard"));
+        });
+        document.getElementById("exercise-search").addEventListener("input", (e) => {
+            const q = e.target.value.trim().toLowerCase();
+            overview.querySelectorAll(".ex-list-item").forEach(item => {
+                item.hidden = !item.dataset.name.toLowerCase().includes(q);
+            });
+        });
+    }
 
     // ---- Workouts per month (line) ----
     dashboardCharts.push(new Chart(document.getElementById("chart-frequency"), {
@@ -876,7 +926,39 @@ function renderDashboard(stats) {
         },
     }));
 
-    // ---- Personal records (horizontal bar) ----
+    // ---- Body parts per week (stacked bar, one series per body part) ----
+    const weeklyCanvas = document.getElementById("chart-weekly");
+    if (weeklyCanvas) {
+        const weeks = [...new Set(weekly.map(w => w.week))];
+        const partNames = [...new Set(weekly.map(w => w.name))];
+        const countOf = new Map(weekly.map(w => [`${w.week}|${w.name}`, Number(w.count)]));
+
+        dashboardCharts.push(new Chart(weeklyCanvas, {
+            type: "bar",
+            data: {
+                labels: weeks.map(weekLabel),
+                datasets: partNames.map((name, i) => ({
+                    label: capitalize(name),
+                    data: weeks.map(wk => countOf.get(`${wk}|${name}`) || 0),
+                    backgroundColor: CHART_PALETTE[i % CHART_PALETTE.length],
+                })),
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } },
+                    tooltip: { callbacks: { title: items => `Week of ${items[0].label}` } },
+                },
+                scales: {
+                    x: { stacked: true, ticks: { font: { size: 10 } } },
+                    y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+                },
+            },
+        }));
+    }
+
+    // ---- Personal records (horizontal bar, tap a bar to open progress) ----
     if (prs.length) {
         dashboardCharts.push(new Chart(document.getElementById("chart-records"), {
             type: "bar",
@@ -892,6 +974,9 @@ function renderDashboard(stats) {
                 indexAxis: "y",
                 responsive: true,
                 maintainAspectRatio: false,
+                onClick: (_evt, elements) => {
+                    if (elements.length) showExerciseProgress(prs[elements[0].index].name, "screen-dashboard");
+                },
                 plugins: {
                     legend: { display: false },
                     tooltip: { callbacks: { label: ctx => `${formatWeight(ctx.parsed.x)} kg` } },
@@ -900,27 +985,198 @@ function renderDashboard(stats) {
             },
         }));
     }
+}
 
-    // ---- Muscle group balance (doughnut) ----
-    if (balance.length) {
-        dashboardCharts.push(new Chart(document.getElementById("chart-balance"), {
-            type: "doughnut",
-            data: {
-                labels: balance.map(b => capitalize(b.name)),
-                datasets: [{
-                    data: balance.map(b => Number(b.count)),
-                    backgroundColor: CHART_PALETTE,
-                    borderColor: "#fff",
-                    borderWidth: 2,
-                }],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } },
-            },
-        }));
+// Colour-coded "days since trained" chip: green ≤ 7, amber 8–14, red 15+ or never.
+function daysChip(bp) {
+    const days = bp.days === null ? null : Number(bp.days);
+    const level = days === null || days > 14 ? "bad" : days > 7 ? "warn" : "ok";
+    const text = days === null ? "never" : days === 0 ? "today" : `${days} d`;
+    return `<div class="days-chip days-chip--${level}">
+                <span class="days-chip-name">${escapeHtml(capitalize(bp.name))}</span>
+                <span class="days-chip-value">${text}</span>
+            </div>`;
+}
+
+const TREND_ARROWS = { up: "↑", down: "↓", flat: "→" };
+
+function exerciseListItem(ex) {
+    const best = ex.best_weight !== null ? `${formatWeight(ex.best_weight)} kg` : "";
+    const trend = ex.trend ? `<span class="trend trend-${ex.trend}">${TREND_ARROWS[ex.trend]}</span>` : "";
+    return `<button type="button" class="ex-list-item" data-name="${escapeHtml(ex.name)}">
+                <span>
+                    <span class="ex-list-name">${escapeHtml(ex.name)}</span>
+                    <span class="ex-list-meta">${ex.times}× · last ${formatDate(ex.last_date)}</span>
+                </span>
+                <span class="ex-list-best">${best}${trend}</span>
+            </button>`;
+}
+
+// "22 Sep" from a "YYYY-MM-DD" week-start string.
+function weekLabel(ymd) {
+    const [y, m, d] = ymd.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+// ---- Exercise progress ----
+
+async function showExerciseProgress(name, backScreen) {
+    document.getElementById("btn-exercise-back").dataset.screen = backScreen;
+    document.getElementById("exercise-title").textContent = name;
+    const container = document.getElementById("exercise-content");
+    container.innerHTML = '<p class="empty-state">Loading…</p>';
+    showScreen("screen-exercise");
+    window.scrollTo(0, 0);
+
+    let data;
+    try {
+        data = await api(`stats.php?exercise=${encodeURIComponent(name)}`);
+    } catch {
+        container.innerHTML = '<p class="empty-state">Could not load exercise.</p>';
+        return;
     }
+    renderExerciseProgress(data);
+}
+
+function renderExerciseProgress(data) {
+    const container = document.getElementById("exercise-content");
+    const sessions = data.sessions || [];
+
+    exerciseCharts.forEach(c => c.destroy());
+    exerciseCharts = [];
+
+    if (sessions.length === 0) {
+        container.innerHTML = '<p class="empty-state">No sessions logged.</p>';
+        return;
+    }
+
+    const badges = (data.body_parts || []).map(bp =>
+        `<span class="body-part-badge">${escapeHtml(bp)}</span>`
+    ).join("");
+
+    const weighted = sessions.filter(s => s.max_weight !== null);
+    const last = sessions[sessions.length - 1];
+    let tiles;
+    let chartHtml;
+
+    if (weighted.length) {
+        const best = weighted.reduce((a, b) => (Number(b.max_weight) > Number(a.max_weight) ? b : a));
+        const lastWeighted = weighted[weighted.length - 1];
+
+        // Change since first, on the machine used most recently
+        const sameMachine = weighted.filter(s => sameText(s.machine, lastWeighted.machine));
+        const change = sameMachine.length > 1
+            ? Number(lastWeighted.max_weight) - Number(sameMachine[0].max_weight)
+            : null;
+        const changeStr = change === null ? "—" : `${change > 0 ? "+" : ""}${formatWeight(change)} kg`;
+        const changeLabel = lastWeighted.machine ? `Change (${lastWeighted.machine})` : "Change since first";
+
+        tiles = `
+            ${statCard(`${formatWeight(best.max_weight)} kg`, `Best · ${formatDate(best.started_at)}${best.machine ? ` · ${best.machine}` : ""}`, "🏆", "rgba(255,193,7,0.2)")}
+            ${statCard(`${formatWeight(lastWeighted.max_weight)} kg`, `Last · ${formatDate(lastWeighted.started_at)}`, "🕒", "rgba(33,150,243,0.14)")}
+            ${statCard(sessions.length, "Times logged", "🔁", "rgba(76,175,80,0.16)")}
+            ${statCard(changeStr, changeLabel, "📈", "rgba(156,39,176,0.14)")}`;
+        chartHtml = '<h3>Weight over time</h3><div class="chart-box"><canvas id="chart-exercise"></canvas></div>';
+    } else {
+        // Bodyweight / no-weight exercise: show how often it's done instead
+        tiles = `
+            ${statCard(sessions.length, "Times logged", "🔁", "rgba(76,175,80,0.16)")}
+            ${statCard(formatDate(last.started_at), "Last done", "🕒", "rgba(33,150,243,0.14)")}`;
+        chartHtml = '<h3>Sessions per month</h3><div class="chart-box"><canvas id="chart-exercise"></canvas></div>';
+    }
+
+    const rows = sessions.slice().reverse().map(s => `
+        <div class="session-row">
+            <div>
+                <div class="session-date">${formatDate(s.started_at)}</div>
+                <div class="session-meta">${escapeHtml(s.gym)}${s.machine ? ` · ${escapeHtml(s.machine)}` : ""}</div>
+            </div>
+            <div class="weight">${s.max_weight !== null ? `${formatWeight(s.max_weight)} kg` : "—"}${recordMark(s)}</div>
+        </div>`).join("");
+
+    container.innerHTML = `
+        ${badges ? `<div class="exercise-badges">${badges}</div>` : ""}
+        <div class="stat-grid">${tiles}</div>
+        <section class="report">${chartHtml}</section>
+        <section class="report">
+            <h3>Sessions</h3>
+            <div class="session-list">${rows}</div>
+        </section>
+    `;
+
+    const canvas = document.getElementById("chart-exercise");
+    if (weighted.length) {
+        exerciseCharts.push(new Chart(canvas, weightChartConfig(weighted)));
+    } else {
+        exerciseCharts.push(new Chart(canvas, sessionsPerMonthConfig(sessions)));
+    }
+}
+
+// Weight line chart, one line per machine (machines aren't comparable).
+// Record-setting sessions get a bigger point.
+function weightChartConfig(weighted) {
+    const machines = [...new Set(weighted.map(s => s.machine || "(no machine)"))];
+    return {
+        type: "line",
+        data: {
+            labels: weighted.map(s => formatDate(s.started_at)),
+            datasets: machines.map((m, i) => {
+                const color = CHART_PALETTE[i % CHART_PALETTE.length];
+                const own = s => (s.machine || "(no machine)") === m;
+                return {
+                    label: m,
+                    data: weighted.map(s => (own(s) ? Number(s.max_weight) : null)),
+                    borderColor: color,
+                    backgroundColor: color,
+                    pointRadius: weighted.map(s => (own(s) && s.is_record ? 6 : 3)),
+                    spanGaps: true,
+                    tension: 0.2,
+                };
+            }),
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: machines.length > 1, position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } },
+                tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${formatWeight(ctx.parsed.y)} kg` } },
+            },
+            scales: {
+                x: { ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true } },
+                y: { ticks: { callback: v => `${v} kg` } },
+            },
+        },
+    };
+}
+
+// Bar chart of sessions per month, from the first session's month to now.
+function sessionsPerMonthConfig(sessions) {
+    const counts = new Map();
+    sessions.forEach(s => {
+        const ym = String(s.started_at).slice(0, 7);
+        counts.set(ym, (counts.get(ym) || 0) + 1);
+    });
+    const months = [];
+    const [fy, fm] = String(sessions[0].started_at).slice(0, 7).split("-").map(Number);
+    const cursor = new Date(fy, fm - 1, 1);
+    const now = new Date();
+    while (cursor <= now) {
+        months.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`);
+        cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return {
+        type: "bar",
+        data: {
+            labels: months.map(monthLabel),
+            datasets: [{ data: months.map(m => counts.get(m) || 0), backgroundColor: CHART_INK, borderRadius: 4 }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+        },
+    };
 }
 
 // ---- Utility ----
@@ -938,6 +1194,21 @@ function escapeHtml(text) {
 function parseTs(ts) {
     if (!ts) return new Date(NaN);
     return new Date(String(ts).replace(" ", "T"));
+}
+
+// "28. 9. 2026" from a PostgreSQL timestamp.
+function formatDate(ts) {
+    return parseTs(ts).toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric", year: "numeric" });
+}
+
+// Case-insensitive, null-safe text match (null and "" count as equal).
+function sameText(a, b) {
+    return (a || "").toLowerCase() === (b || "").toLowerCase();
+}
+
+// Trophy after the weight of a record-setting entry.
+function recordMark(ex) {
+    return ex.is_record ? ' <span class="record-mark" title="New record">🏆</span>' : "";
 }
 
 // NUMERIC weights come back as strings like "60.00" — drop trailing zeros.
