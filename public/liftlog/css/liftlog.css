@@ -884,3 +884,61 @@ input[type="password"] {
     white-space: nowrap;
     margin-left: 0.5rem;
 }
+
+/* ---- Saving / offline queue ---- */
+.spinner {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    margin-right: 0.5rem;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.btn:disabled {
+    opacity: 0.85;
+    cursor: default;
+}
+
+.save-local-link {
+    display: block;
+    width: 100%;
+    margin-top: 0.75rem;
+    text-decoration: underline;
+    min-height: 44px;
+}
+
+.save-local-link[hidden],
+.sync-pill[hidden] {
+    display: none;
+}
+
+.sync-pill {
+    background: #f1f3f5;
+    border: 1px solid #e3e6e9;
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.78rem;
+    color: #666;
+    cursor: pointer;
+    min-height: 32px;
+}
+
+.pending-mark {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: #999;
+    margin-left: 0.5rem;
+}
+
+.toast-info {
+    background: #333;
+    color: #fff;
+}

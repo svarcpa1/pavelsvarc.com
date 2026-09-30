@@ -2,6 +2,10 @@
 
 const API = "/liftlog/api";
 const TOTAL_BODY_PARTS = 7;
+const SAVE_TIMEOUT_MS = 20000; // give up on the server and save on the phone after this
+const SLOW_AFTER_S = 5;        // show "Slow connection…" after this many seconds
+const HINT_TIMEOUT_MS = 5000;  // suggestions / last-weight hints: fail fast, never block
+const SYNC_INTERVAL_MS = 30000;
 
 // Dashboard chart styling
 const CHART_INK = "#222";
@@ -18,6 +22,8 @@ let timerInterval = null;
 // Exercise modal state
 let selectedBodyPartIds = [];
 let editingExerciseId = null;
+let editingExerciseUuid = null; // phone ID of the entry being edited (survives a sync)
+let saveInFlight = false;
 let exerciseSuggestions = []; // distinct names for the current body-part selection
 let machineSuggestions = [];  // distinct machines for the current exercise name
 
@@ -49,25 +55,51 @@ function showToast(message, type = "error", durationMs = 3000) {
 
 // ---- API helpers ----
 
+// fetch wrapper with a time limit. Options on top of fetch's:
+//   timeoutMs  - abort after this long (default SAVE_TIMEOUT_MS)
+//   quiet      - don't show error toasts (caller handles errors)
+//   controller - AbortController, so the caller can also abort early
+// Errors carry .network (no answer: timeout / offline / aborted) or .status (HTTP error).
 async function api(endpoint, opts = {}) {
-    const res = await fetch(`${API}/${endpoint}`, {
-        headers: { "Content-Type": "application/json" },
-        ...opts,
-    });
-    if (res.status === 401) {
-        showScreen("screen-login");
-        throw new Error("Unauthorized");
+    const { timeoutMs = SAVE_TIMEOUT_MS, quiet = false, controller = new AbortController(), ...fetchOpts } = opts;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const networkError = () => {
+        if (!quiet) showToast("No connection. Please try again.");
+        return Object.assign(new Error("Network error"), { network: true });
+    };
+
+    try {
+        let res;
+        try {
+            res = await fetch(`${API}/${endpoint}`, {
+                headers: { "Content-Type": "application/json" },
+                ...fetchOpts,
+                signal: controller.signal,
+            });
+        } catch {
+            throw networkError();
+        }
+        if (res.status === 401) {
+            showScreen("screen-login");
+            throw Object.assign(new Error("Unauthorized"), { status: 401 });
+        }
+        if (res.status === 429) {
+            const data = await res.json();
+            showToast(data.error || "Too many attempts. Try again later.");
+            throw Object.assign(new Error("Rate limited"), { status: 429 });
+        }
+        if (!res.ok) {
+            if (!quiet) showToast("Something went wrong. Please try again.");
+            throw Object.assign(new Error(res.statusText), { status: res.status });
+        }
+        try {
+            return await res.json();
+        } catch {
+            throw networkError(); // connection dropped mid-response
+        }
+    } finally {
+        clearTimeout(timer);
     }
-    if (res.status === 429) {
-        const data = await res.json();
-        showToast(data.error || "Too many attempts. Try again later.");
-        throw new Error("Rate limited");
-    }
-    if (!res.ok) {
-        showToast("Something went wrong. Please try again.");
-        throw new Error(res.statusText);
-    }
-    return res.json();
 }
 
 // ---- Auth ----
@@ -89,7 +121,9 @@ async function checkActiveWorkout() {
     try {
         // Check for unfinished workout
         const workouts = await api("workouts.php?limit=1");
-        if (workouts.length > 0 && !workouts[0].finished_at) {
+        const queue = loadQueue();
+        const finishedOnPhone = w => queue.some(i => i.type === "finish" && i.workout_id === w.id);
+        if (workouts.length > 0 && !workouts[0].finished_at && !finishedOnPhone(workouts[0])) {
             const w = workouts[0];
             // Fetch full workout detail with exercises
             const detail = await api(`workouts.php?id=${w.id}`);
@@ -100,7 +134,15 @@ async function checkActiveWorkout() {
                 gym_name: w.gym_name,
                 started_at: w.started_at,
             };
-            exercises = detail.exercises || [];
+            // Server rows + entries still waiting on the phone (unless the server already has them)
+            const serverExercises = detail.exercises || [];
+            const onServer = new Set(serverExercises.map(e => e.client_uuid).filter(Boolean));
+            exercises = [
+                ...serverExercises,
+                ...queue
+                    .filter(i => i.type === "exercise" && i.workout_id === w.id && !onServer.has(i.uuid))
+                    .map(pendingEntry),
+            ];
 
             document.getElementById("workout-gym-name").textContent = currentWorkout.gym_name;
             renderExercises();
@@ -126,6 +168,7 @@ async function login() {
         });
         document.getElementById("pin-input").value = "";
         await checkActiveWorkout();
+        syncQueue();
     } catch {
         errorEl.hidden = false;
     }
@@ -216,6 +259,7 @@ function renderExercises() {
             `<span class="body-part-badge">${escapeHtml(bp.name)}</span>`
         ).join("");
         const weightStr = ex.max_weight !== null ? `${formatWeight(ex.max_weight)} kg${recordMark(ex)}` : "";
+        const pendingStr = ex.pending ? '<span class="pending-mark">📱 on phone</span>' : "";
 
         return `
             <div class="exercise-item" data-id="${ex.id}">
@@ -225,7 +269,7 @@ function renderExercises() {
                         ${badges}
                         ${ex.machine ? `<span style="color:#777">${escapeHtml(ex.machine)}</span>` : ""}
                     </div>
-                    ${weightStr ? `<div class="exercise-weight">${weightStr}</div>` : ""}
+                    ${weightStr || pendingStr ? `<div class="exercise-weight">${weightStr}${pendingStr}</div>` : ""}
                 </div>
                 <div class="exercise-actions">
                     <button class="btn-icon btn-edit-exercise" data-id="${ex.id}" aria-label="Edit exercise">&#9998;</button>
@@ -239,7 +283,7 @@ function renderExercises() {
     container.querySelectorAll(".btn-edit-exercise").forEach(btn => {
         btn.addEventListener("click", (e) => {
             e.stopPropagation();
-            const ex = exercises.find(x => x.id === parseInt(btn.dataset.id));
+            const ex = exercises.find(x => String(x.id) === btn.dataset.id);
             if (ex) openExerciseModal(ex);
         });
     });
@@ -249,13 +293,20 @@ function renderExercises() {
         btn.addEventListener("click", async (e) => {
             e.stopPropagation();
             if (!confirm("Delete this exercise?")) return;
-            try {
-                await api(`exercises.php?id=${btn.dataset.id}`, { method: "DELETE" });
-                exercises = exercises.filter(x => x.id !== parseInt(btn.dataset.id));
-                renderExercises();
-            } catch {
-                // Error already shown by api()
+            const ex = exercises.find(x => String(x.id) === btn.dataset.id);
+            if (!ex) return;
+            if (ex.pending) {
+                // Never reached the server: just forget it
+                dequeue(i => i.uuid === ex.uuid);
+            } else {
+                try {
+                    await api(`exercises.php?id=${ex.id}`, { method: "DELETE" });
+                } catch {
+                    return; // Error already shown by api()
+                }
             }
+            exercises = exercises.filter(x => x !== ex);
+            renderExercises();
         });
     });
 }
@@ -271,6 +322,8 @@ async function cancelWorkout() {
         return;
     }
 
+    const cancelledId = currentWorkout.id;
+    dequeue(i => i.workout_id === cancelledId);
     stopTimer();
     currentWorkout = null;
     exercises = [];
@@ -326,14 +379,42 @@ function closeFinishSummary() {
 
 async function confirmFinishWorkout() {
     if (!currentWorkout) return;
+    const btn = document.getElementById("btn-confirm-finish");
+    if (btn.disabled) return;
 
-    try {
-        await api("workouts.php", {
-            method: "PATCH",
-            body: JSON.stringify({ id: currentWorkout.id }),
-        });
-    } catch {
-        return;
+    const workoutId = currentWorkout.id;
+    const finishedAt = new Date().toISOString(); // the real end time, even if it syncs later
+    // Exercises still on the phone must reach the server first, so queue the finish behind them
+    let queueIt = loadQueue().some(i => i.workout_id === workoutId);
+
+    if (!queueIt) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" aria-hidden="true"></span>Finishing…';
+        try {
+            await api("workouts.php", {
+                method: "PATCH",
+                body: JSON.stringify({ id: workoutId, finished_at: finishedAt }),
+                quiet: true,
+            });
+        } catch (err) {
+            if (!err.network) {
+                if (err.status !== 401) showToast("Something went wrong. Please try again.");
+                return;
+            }
+            queueIt = true;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Finish Workout";
+        }
+    }
+
+    if (queueIt) {
+        if (!enqueue({ type: "finish", uuid: newUuid(), workout_id: workoutId, finished_at: finishedAt })) {
+            showToast("No connection, and the phone couldn't store it. Please try again.");
+            return;
+        }
+        showToast("📱 Workout saved on phone, will sync when online", "info");
+        syncQueue();
     }
 
     closeFinishSummary();
@@ -379,6 +460,7 @@ async function openExerciseModal(exercise = null) {
     // Reset state
     selectedBodyPartIds = [];
     editingExerciseId = null;
+    editingExerciseUuid = null;
     exerciseSuggestions = [];
     machineSuggestions = [];
     clearValidation();
@@ -393,6 +475,7 @@ async function openExerciseModal(exercise = null) {
     if (exercise) {
         // Edit mode
         editingExerciseId = exercise.id;
+        editingExerciseUuid = exercise.uuid || exercise.client_uuid || null;
         titleEl.textContent = "Edit Exercise";
         document.getElementById("exercise-name").value = exercise.name || "";
         document.getElementById("exercise-machine").value = exercise.machine || "";
@@ -447,6 +530,7 @@ async function openExerciseModal(exercise = null) {
 }
 
 function closeExerciseModal() {
+    if (saveInFlight) return; // wait for the save (or "Save to phone now")
     document.getElementById("modal-exercise").classList.remove("active");
     hideAutocomplete();
     hideMachineDropdown();
@@ -459,7 +543,7 @@ async function loadExerciseSuggestions() {
     try {
         const params = new URLSearchParams({ suggest: "exercises" });
         if (selectedBodyPartIds.length) params.set("body_parts", selectedBodyPartIds.join(","));
-        exerciseSuggestions = await api(`exercises.php?${params}`);
+        exerciseSuggestions = await api(`exercises.php?${params}`, { timeoutMs: HINT_TIMEOUT_MS, quiet: true });
     } catch {
         exerciseSuggestions = [];
     }
@@ -510,7 +594,7 @@ async function loadMachineSuggestions() {
     }
     try {
         const params = new URLSearchParams({ suggest: "machines", name });
-        machineSuggestions = await api(`exercises.php?${params}`);
+        machineSuggestions = await api(`exercises.php?${params}`, { timeoutMs: HINT_TIMEOUT_MS, quiet: true });
     } catch {
         machineSuggestions = [];
     }
@@ -573,7 +657,7 @@ async function refreshLastWeight() {
         });
         if (machine) params.set("machine", machine);
 
-        const result = await api(`exercises.php?${params}`);
+        const result = await api(`exercises.php?${params}`, { timeoutMs: HINT_TIMEOUT_MS, quiet: true });
         showLastWeight(result.max_weight, result.last_date);
     } catch {
         el.hidden = true;
@@ -630,59 +714,266 @@ async function saveExercise() {
         return;
     }
 
+    if (saveInFlight) return;
+
+    const fields = {
+        body_part_ids: [...selectedBodyPartIds],
+        name,
+        machine: machine || null,
+        max_weight: weight !== "" ? parseFloat(weight) : null,
+    };
+    const bodyPartObjs = bodyParts
+        .filter(bp => selectedBodyPartIds.includes(bp.id))
+        .map(bp => ({ id: bp.id, name: bp.name }));
+
+    let saved;
+
+    if (editingExerciseId) {
+        // The entry may have synced while the modal was open: find it by its phone ID too
+        const target = exercises.find(x => x.id === editingExerciseId)
+            || (editingExerciseUuid && exercises.find(x => (x.uuid || x.client_uuid) === editingExerciseUuid));
+
+        if (target && target.pending) {
+            // Still on the phone: just update the queued entry, no network needed
+            updateQueuedExercise(target.uuid, fields, bodyPartObjs);
+            Object.assign(target, fields, { max_weight: fields.max_weight === null ? null : String(fields.max_weight), body_parts: bodyPartObjs });
+            renderExercises();
+            closeExerciseModal();
+            return;
+        }
+
+        try {
+            saved = await withSavingUi(controller => api("exercises.php", {
+                method: "PUT",
+                body: JSON.stringify({ id: target ? target.id : editingExerciseId, ...fields }),
+                controller,
+            }), false);
+        } catch {
+            return; // Error already shown by api(); form stays open for a retry
+        }
+        const idx = exercises.findIndex(x => x.id === saved.id);
+        if (idx !== -1) exercises[idx] = saved;
+    } else {
+        const workoutId = currentWorkout.id;
+        const uuid = newUuid();
+        const payload = { ...fields, workout_id: workoutId, client_uuid: uuid };
+
+        try {
+            saved = await withSavingUi(controller => api("exercises.php", {
+                method: "POST",
+                body: JSON.stringify(payload),
+                controller,
+                quiet: true,
+            }), true);
+        } catch (err) {
+            if (!err.network) {
+                if (err.status !== 401) showToast("Something went wrong. Please try again.");
+                return;
+            }
+            // No answer within the time limit (or "Save to phone now"): keep it on the phone
+            const item = { type: "exercise", uuid, workout_id: workoutId, payload, body_parts: bodyPartObjs };
+            if (!enqueue(item)) {
+                showToast("No connection, and the phone couldn't store it. Please try again.");
+                return;
+            }
+            exercises.push(pendingEntry(item));
+            renderExercises();
+            closeExerciseModal();
+            showToast("📱 Saved on phone, will sync when online", "info");
+            return;
+        }
+        exercises.push(saved);
+    }
+
+    renderExercises();
+    closeExerciseModal();
+    announceRecord(saved);
+}
+
+// Run a save request with visible progress on the Save button:
+// "Saving…" -> after 5 s "Slow connection… N s" countdown to the time limit.
+// With allowLocal, a "Save to phone now" link aborts the wait early.
+async function withSavingUi(request, allowLocal) {
     const saveBtn = document.getElementById("btn-save-exercise");
-    if (saveBtn.disabled) return;
+    const cancelBtn = document.getElementById("btn-cancel-exercise");
+    const localLink = document.getElementById("btn-save-local");
+    const controller = new AbortController();
+    const startedMs = Date.now();
+
+    const render = () => {
+        const secs = Math.floor((Date.now() - startedMs) / 1000);
+        const slow = secs >= SLOW_AFTER_S;
+        const left = Math.max(0, Math.ceil(SAVE_TIMEOUT_MS / 1000) - secs);
+        saveBtn.innerHTML = `<span class="spinner" aria-hidden="true"></span>${slow ? `Slow connection… ${left} s` : "Saving…"}`;
+        localLink.hidden = !(allowLocal && slow);
+    };
+
+    saveInFlight = true;
     saveBtn.disabled = true;
+    cancelBtn.disabled = true;
+    localLink.onclick = () => controller.abort();
+    render();
+    const ticker = setInterval(render, 250);
 
     try {
-        let saved;
-        if (editingExerciseId) {
-            const updated = await api("exercises.php", {
-                method: "PUT",
-                body: JSON.stringify({
-                    id: editingExerciseId,
-                    body_part_ids: selectedBodyPartIds,
-                    name,
-                    machine: machine || null,
-                    max_weight: weight !== "" ? parseFloat(weight) : null,
-                }),
-            });
-
-            const idx = exercises.findIndex(x => x.id === editingExerciseId);
-            if (idx !== -1) exercises[idx] = updated;
-            saved = updated;
-        } else {
-            const exercise = await api("exercises.php", {
-                method: "POST",
-                body: JSON.stringify({
-                    workout_id: currentWorkout.id,
-                    body_part_ids: selectedBodyPartIds,
-                    name,
-                    machine: machine || null,
-                    max_weight: weight !== "" ? parseFloat(weight) : null,
-                }),
-            });
-
-            exercises.push(exercise);
-            saved = exercise;
-        }
-
-        renderExercises();
-        closeExerciseModal();
-
-        if (saved.is_record) {
-            const label = saved.machine ? `${saved.name} · ${saved.machine}` : saved.name;
-            showToast(
-                `🎉 New record! ${label}: ${formatWeight(saved.max_weight)} kg (was ${formatWeight(saved.previous_best)} kg)`,
-                "success",
-                4500,
-            );
-        }
-    } catch {
-        // Error already shown by api()
+        return await request(controller);
     } finally {
+        clearInterval(ticker);
+        saveInFlight = false;
         saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        saveBtn.textContent = "Save";
+        localLink.hidden = true;
+        localLink.onclick = null;
     }
+}
+
+function announceRecord(saved) {
+    if (!saved || !saved.is_record) return;
+    const label = saved.machine ? `${saved.name} · ${saved.machine}` : saved.name;
+    showToast(
+        `🎉 New record! ${label}: ${formatWeight(saved.max_weight)} kg (was ${formatWeight(saved.previous_best)} kg)`,
+        "success",
+        4500,
+    );
+}
+
+// ---- Offline queue (saved on phone, synced later) ----
+//
+// Entries that couldn't reach the server are kept in localStorage and sent in
+// order (oldest first) whenever the app gets a chance: every 30 s, when the
+// connection comes back, when the app returns to the foreground, or when the
+// "📱 N waiting" pill is tapped. Each exercise carries a phone-generated UUID,
+// so a retry of something the server already has is ignored (no duplicates).
+//
+// Item shapes:
+//   { type: "exercise", uuid, workout_id, payload, body_parts }
+//   { type: "finish",   uuid, workout_id, finished_at }
+
+const QUEUE_KEY = "liftlog_queue";
+let syncing = false;
+
+function loadQueue() {
+    try {
+        return JSON.parse(localStorage.getItem(QUEUE_KEY)) || [];
+    } catch {
+        return [];
+    }
+}
+
+// Returns false when storage is unavailable or full.
+function saveQueue(queue) {
+    try {
+        localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function enqueue(item) {
+    const ok = saveQueue([...loadQueue(), item]);
+    updatePendingIndicator();
+    return ok;
+}
+
+function dequeue(match) {
+    saveQueue(loadQueue().filter(item => !match(item)));
+    updatePendingIndicator();
+}
+
+function updateQueuedExercise(uuid, fields, bodyPartObjs) {
+    saveQueue(loadQueue().map(item => (item.uuid === uuid
+        ? { ...item, payload: { ...item.payload, ...fields }, body_parts: bodyPartObjs }
+        : item)));
+}
+
+// How a queued exercise is shown in the workout list until it syncs.
+function pendingEntry(item) {
+    const w = item.payload.max_weight;
+    return {
+        id: `local-${item.uuid}`,
+        uuid: item.uuid,
+        pending: true,
+        name: item.payload.name,
+        machine: item.payload.machine,
+        max_weight: w === null ? null : String(w),
+        body_parts: item.body_parts,
+    };
+}
+
+function updatePendingIndicator() {
+    const count = loadQueue().length;
+    document.querySelectorAll(".sync-pill").forEach(pill => {
+        pill.hidden = count === 0;
+        pill.textContent = `📱 ${count} waiting`;
+    });
+}
+
+async function syncQueue() {
+    if (syncing || loadQueue().length === 0) return;
+    syncing = true;
+
+    try {
+        let queue;
+        while ((queue = loadQueue()).length > 0) {
+            const item = queue[0];
+            try {
+                if (item.type === "exercise") {
+                    const saved = await api("exercises.php", {
+                        method: "POST",
+                        body: JSON.stringify(item.payload),
+                        quiet: true,
+                    });
+                    dequeue(i => i.uuid === item.uuid);
+                    applySyncedExercise(item.uuid, saved);
+                    announceRecord(saved);
+                } else if (item.type === "finish") {
+                    await api("workouts.php", {
+                        method: "PATCH",
+                        body: JSON.stringify({ id: item.workout_id, finished_at: item.finished_at }),
+                        quiet: true,
+                    });
+                    dequeue(i => i.uuid === item.uuid);
+                } else {
+                    dequeue(i => i === item);
+                }
+            } catch (err) {
+                // The server rejected it for good (e.g. workout deleted): drop it
+                if (err.status >= 400 && err.status < 500 && err.status !== 401 && err.status !== 429) {
+                    dequeue(i => i.uuid === item.uuid);
+                    showToast("A saved-on-phone entry couldn't be synced and was discarded.", "warning");
+                    continue;
+                }
+                break; // No connection / server hiccup: try again later
+            }
+        }
+    } finally {
+        syncing = false;
+        updatePendingIndicator();
+    }
+}
+
+// Swap the "on phone" placeholder for the server's row once it has synced.
+function applySyncedExercise(uuid, saved) {
+    const idx = exercises.findIndex(x => x.uuid === uuid);
+    if (idx === -1) return;
+    if (exercises.some(x => x.id === saved.id)) {
+        exercises.splice(idx, 1);
+    } else {
+        exercises[idx] = saved;
+    }
+    renderExercises();
+}
+
+// RFC 4122 v4 UUID; crypto.randomUUID needs iOS 15.4+, so fall back to getRandomValues.
+function newUuid() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = [...b].map(x => x.toString(16).padStart(2, "0")).join("");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 // ---- History ----
@@ -1319,6 +1610,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // Offline queue: tap the pill to retry now; also retry periodically,
+    // when the connection returns and when the app comes back to the foreground
+    document.querySelectorAll(".sync-pill").forEach(pill => pill.addEventListener("click", syncQueue));
+    setInterval(syncQueue, SYNC_INTERVAL_MS);
+    window.addEventListener("online", syncQueue);
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") syncQueue();
+    });
+    updatePendingIndicator();
+
     // Start
-    checkAuth();
+    checkAuth().then(syncQueue);
 });

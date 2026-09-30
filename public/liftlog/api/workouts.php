@@ -42,7 +42,7 @@ try {
             // Fetch exercises
             $stmt = $db->prepare('
                 WITH ' . LL_RECORDS_CTE . '
-                SELECT e.id, e.name, e.machine, e.max_weight, r.is_record
+                SELECT e.id, e.name, e.machine, e.max_weight, e.client_uuid, r.is_record
                 FROM ll_exercises e
                 JOIN ll_records r ON r.id = e.id
                 WHERE e.workout_id = :workout_id
@@ -148,8 +148,24 @@ try {
             exit;
         }
 
-        $stmt = $db->prepare('UPDATE ll_workouts SET finished_at = CURRENT_TIMESTAMP WHERE id = :id');
-        $stmt->execute(['id' => $id]);
+        // Optional finished_at (ISO 8601) = when Finish was tapped on the phone, so a
+        // finish that syncs later keeps the real end time. Clamped to [started_at, now].
+        $finishedAt = $input['finished_at'] ?? null;
+        if ($finishedAt !== null && strtotime($finishedAt) === false) {
+            http_response_code(400);
+            echo json_encode(['error' => 'finished_at must be a date/time']);
+            exit;
+        }
+
+        $stmt = $db->prepare('
+            UPDATE ll_workouts
+            SET finished_at = LEAST(
+                GREATEST(COALESCE(CAST(CAST(:finished_at AS timestamptz) AS timestamp), LOCALTIMESTAMP), started_at),
+                LOCALTIMESTAMP
+            )
+            WHERE id = :id
+        ');
+        $stmt->execute(['id' => $id, 'finished_at' => $finishedAt]);
 
         echo json_encode(['ok' => true]);
         exit;

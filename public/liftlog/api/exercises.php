@@ -46,10 +46,27 @@ try {
         $name = trim($input['name'] ?? '');
         $machine = trim($input['machine'] ?? '') ?: null;
         $maxWeight = isset($input['max_weight']) && $input['max_weight'] !== '' ? (float)$input['max_weight'] : null;
+        // Phone-generated ID: a retry of an entry the server already has returns the existing row
+        $clientUuid = $input['client_uuid'] ?? null;
 
         if (!$workoutId || empty($bodyPartIds) || !$name) {
             http_response_code(400);
             echo json_encode(['error' => 'workout_id, body_part_ids, and name are required']);
+            exit;
+        }
+        if ($clientUuid !== null
+            && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $clientUuid)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'client_uuid must be a UUID']);
+            exit;
+        }
+
+        // A queued entry may arrive after its workout was deleted
+        $stmt = $db->prepare('SELECT 1 FROM ll_workouts WHERE id = :id');
+        $stmt->execute(['id' => $workoutId]);
+        if (!$stmt->fetchColumn()) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Workout not found']);
             exit;
         }
 
@@ -61,9 +78,10 @@ try {
         $sortOrder = (int)$stmt->fetchColumn();
 
         $stmt = $db->prepare('
-            INSERT INTO ll_exercises (workout_id, name, machine, max_weight, sort_order)
-            VALUES (:workout_id, :name, :machine, :max_weight, :sort_order)
-            RETURNING id, workout_id, name, machine, max_weight, sort_order
+            INSERT INTO ll_exercises (workout_id, name, machine, max_weight, sort_order, client_uuid)
+            VALUES (:workout_id, :name, :machine, :max_weight, :sort_order, :client_uuid)
+            ON CONFLICT (client_uuid) DO NOTHING
+            RETURNING id, workout_id, name, machine, max_weight, sort_order, client_uuid
         ');
         $stmt->execute([
             'workout_id' => $workoutId,
@@ -71,12 +89,24 @@ try {
             'machine' => $machine,
             'max_weight' => $maxWeight,
             'sort_order' => $sortOrder,
+            'client_uuid' => $clientUuid,
         ]);
 
         $exercise = $stmt->fetch();
-        insertBodyParts($db, $exercise['id'], $bodyPartIds);
 
-        $db->commit();
+        if ($exercise) {
+            insertBodyParts($db, $exercise['id'], $bodyPartIds);
+            $db->commit();
+        } else {
+            // Already saved by an earlier attempt: return that row unchanged
+            $db->rollBack();
+            $stmt = $db->prepare('
+                SELECT id, workout_id, name, machine, max_weight, sort_order, client_uuid
+                FROM ll_exercises WHERE client_uuid = :client_uuid
+            ');
+            $stmt->execute(['client_uuid' => $clientUuid]);
+            $exercise = $stmt->fetch();
+        }
 
         $exercise['body_parts'] = getExerciseBodyParts($db, $exercise['id']);
         $exercise += getRecordInfo($db, (int)$exercise['id']);

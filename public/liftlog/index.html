@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>LiftLog</title>
-    <link rel="stylesheet" href="css/liftlog.css?v=20260930">
+    <link rel="stylesheet" href="css/liftlog.css?v=20260930b">
 </head>
 <body>
     <!-- Login -->
@@ -22,6 +22,7 @@
     <section id="screen-home" class="screen" hidden>
         <header class="app-header">
             <h1>LiftLog</h1>
+            <button type="button" class="sync-pill" hidden>📱 0 waiting</button>
             <button type="button" id="btn-logout" class="btn-link">Logout</button>
         </header>
         <div class="home-actions">
@@ -47,6 +48,7 @@
                 <h2 id="workout-gym-name"><!-- filled by JS -->&nbsp;</h2>
                 <span id="workout-timer" class="timer"></span>
             </div>
+            <button type="button" class="sync-pill" hidden>📱 0 waiting</button>
         </header>
         <div id="exercise-list" class="exercise-list"></div>
         <div class="workout-bottom-bar">
@@ -84,6 +86,7 @@
                 <button type="button" id="btn-save-exercise" class="btn btn-primary">Save</button>
                 <button type="button" id="btn-cancel-exercise" class="btn btn-secondary">Cancel</button>
             </div>
+            <button type="button" id="btn-save-local" class="btn-link save-local-link" hidden>Save to phone now</button>
         </div>
     </div>
 
@@ -127,6 +130,6 @@
     </section>
 
     <script src="js/vendor/chart.umd.min.js?v=4.4.6"></script>
-    <script src="js/liftlog.js?v=20260930"></script>
+    <script src="js/liftlog.js?v=20260930b"></script>
 </body>
 </html>

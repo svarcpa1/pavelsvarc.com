@@ -28,6 +28,8 @@ export default [
                 encodeURIComponent: "readonly",
                 URLSearchParams: "readonly",
                 Chart: "readonly",
+                AbortController: "readonly",
+                crypto: "readonly",
             },
         },
         rules: {
