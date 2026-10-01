@@ -19,12 +19,13 @@ try {
 
     // ---- Single exercise progress: ?exercise=Name ----
     // Every session of that exercise (all machines, all gyms), oldest first.
+    // The client filters by gym — machines aren't comparable across gyms.
     if (isset($_GET['exercise'])) {
         $name = trim($_GET['exercise']);
 
         $stmt = $db->prepare('
             WITH ' . LL_RECORDS_CTE . '
-            SELECT w.started_at, g.name AS gym, e.machine, e.max_weight, r.is_record
+            SELECT w.started_at, w.gym_id, g.name AS gym, e.machine, e.max_weight, r.is_record
             FROM ll_exercises e
             JOIN ll_workouts w ON w.id = e.workout_id
             JOIN ll_gyms g ON g.id = w.gym_id
@@ -80,13 +81,15 @@ try {
         ORDER BY m
     ")->fetchAll();
 
-    // ---- Personal records: heaviest weight per exercise (top 10) ----
+    // ---- Personal records: heaviest weight per exercise + gym (top 10) ----
     $records = $db->query("
-        SELECT name, MAX(max_weight) AS max_weight
-        FROM ll_exercises
-        WHERE max_weight IS NOT NULL
-        GROUP BY name
-        ORDER BY MAX(max_weight) DESC, name
+        SELECT MIN(e.name) AS name, w.gym_id, g.name AS gym, MAX(e.max_weight) AS max_weight
+        FROM ll_exercises e
+        JOIN ll_workouts w ON w.id = e.workout_id
+        JOIN ll_gyms g ON g.id = w.gym_id
+        WHERE e.max_weight IS NOT NULL
+        GROUP BY LOWER(e.name), w.gym_id, g.name
+        ORDER BY MAX(e.max_weight) DESC, MIN(e.name)
         LIMIT 10
     ")->fetchAll();
 
@@ -122,9 +125,9 @@ try {
     ")->fetchAll();
 
     // ---- Exercise list: best, last and trend per exercise name ----
-    // Trend compares the last session with the previous one on the same machine.
+    // Trend compares the last session with the previous one on the same gym + machine.
     $rows = $db->query("
-        SELECT e.name, e.machine, e.max_weight, w.started_at
+        SELECT e.name, e.machine, e.max_weight, w.started_at, w.gym_id
         FROM ll_exercises e
         JOIN ll_workouts w ON w.id = e.workout_id
         ORDER BY w.started_at DESC, e.id DESC
@@ -141,6 +144,7 @@ try {
                 'last_date'    => $row['started_at'],
                 'last_weight'  => $row['max_weight'],
                 'last_machine' => $row['machine'],
+                'last_gym_id'  => $row['gym_id'],
                 'trend'        => null,
             ];
         }
@@ -150,9 +154,10 @@ try {
             && ($ex['best_weight'] === null || (float)$row['max_weight'] > (float)$ex['best_weight'])) {
             $ex['best_weight'] = $row['max_weight'];
         }
-        // First earlier row on the same machine decides the trend
+        // First earlier row on the same gym + machine decides the trend
         if ($ex['times'] > 1 && $ex['trend'] === null
             && $ex['last_weight'] !== null && $row['max_weight'] !== null
+            && $row['gym_id'] === $ex['last_gym_id']
             && strtolower($row['machine'] ?? '') === strtolower($ex['last_machine'] ?? '')) {
             $diff = (float)$ex['last_weight'] - (float)$row['max_weight'];
             $ex['trend'] = $diff > 0 ? 'up' : ($diff < 0 ? 'down' : 'flat');

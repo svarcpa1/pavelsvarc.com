@@ -1008,7 +1008,7 @@ async function showHistory() {
         const fullBodyBadge = fullBody ? '<span class="full-body-badge">Full Body</span>' : "";
 
         return `
-            <div class="history-item${fullBodyClass}" data-id="${w.id}">
+            <div class="history-item${fullBodyClass}" data-id="${w.id}" data-gym-id="${w.gym_id}">
                 <div class="history-header">
                     <div>
                         <div class="date">${dateStr} ${timeStr}</div>
@@ -1087,7 +1087,7 @@ async function toggleHistoryDetail(item) {
                 }).join("");
 
                 detail.querySelectorAll(".exercise-link").forEach(row => {
-                    row.addEventListener("click", () => showExerciseProgress(row.dataset.name, "screen-history"));
+                    row.addEventListener("click", () => showExerciseProgress(row.dataset.name, "screen-history", Number(item.dataset.gymId)));
                 });
             }
 
@@ -1261,7 +1261,7 @@ function renderDashboard(stats) {
         dashboardCharts.push(new Chart(document.getElementById("chart-records"), {
             type: "bar",
             data: {
-                labels: prs.map(r => r.name),
+                labels: prs.map(r => [r.name, r.gym]),
                 datasets: [{
                     data: prs.map(r => Number(r.max_weight)),
                     backgroundColor: CHART_INK,
@@ -1273,7 +1273,10 @@ function renderDashboard(stats) {
                 responsive: true,
                 maintainAspectRatio: false,
                 onClick: (_evt, elements) => {
-                    if (elements.length) showExerciseProgress(prs[elements[0].index].name, "screen-dashboard");
+                    if (elements.length) {
+                        const pr = prs[elements[0].index];
+                        showExerciseProgress(pr.name, "screen-dashboard", pr.gym_id);
+                    }
                 },
                 plugins: {
                     legend: { display: false },
@@ -1318,7 +1321,8 @@ function weekLabel(ymd) {
 
 // ---- Exercise progress ----
 
-async function showExerciseProgress(name, backScreen) {
+// gymId: gym to open on; defaults to the gym of the most recent session.
+async function showExerciseProgress(name, backScreen, gymId = null) {
     document.getElementById("btn-exercise-back").dataset.screen = backScreen;
     document.getElementById("exercise-title").textContent = name;
     const container = document.getElementById("exercise-content");
@@ -1333,12 +1337,30 @@ async function showExerciseProgress(name, backScreen) {
         container.innerHTML = '<p class="empty-state">Could not load exercise.</p>';
         return;
     }
-    renderExerciseProgress(data);
+    const all = data.sessions || [];
+    all.forEach(s => { s.gym_id = Number(s.gym_id); });
+    gymId = gymId === null ? null : Number(gymId);
+    if (all.length && !all.some(s => s.gym_id === gymId)) {
+        gymId = all[all.length - 1].gym_id;
+    }
+    renderExerciseProgress(data, gymId);
 }
 
-function renderExerciseProgress(data) {
+// Gyms this exercise was done at, most recently used first.
+function exerciseGyms(sessions) {
+    const seen = new Map();
+    sessions.slice().reverse().forEach(s => {
+        if (!seen.has(s.gym_id)) seen.set(s.gym_id, s.gym);
+    });
+    return [...seen].map(([id, name]) => ({ id, name }));
+}
+
+// Everything on this screen is scoped to one gym: the same machine type
+// differs between gyms, so weights aren't comparable across them.
+function renderExerciseProgress(data, gymId) {
     const container = document.getElementById("exercise-content");
-    const sessions = data.sessions || [];
+    const allSessions = data.sessions || [];
+    const sessions = allSessions.filter(s => s.gym_id === gymId);
 
     exerciseCharts.forEach(c => c.destroy());
     exerciseCharts = [];
@@ -1347,6 +1369,13 @@ function renderExerciseProgress(data) {
         container.innerHTML = '<p class="empty-state">No sessions logged.</p>';
         return;
     }
+
+    const gymList = exerciseGyms(allSessions);
+    const gymChips = gymList.length > 1
+        ? `<div class="gym-filter">${gymList.map(g =>
+            `<button type="button" class="gym-filter-btn${g.id === gymId ? " selected" : ""}" data-id="${g.id}">📍 ${escapeHtml(g.name)}</button>`
+          ).join("")}</div>`
+        : "";
 
     const badges = (data.body_parts || []).map(bp =>
         partBadge(bp)
@@ -1387,13 +1416,15 @@ function renderExerciseProgress(data) {
         <div class="session-row">
             <div>
                 <div class="session-date">${formatDate(s.started_at)}</div>
-                <div class="session-meta">${escapeHtml(s.gym)}${s.machine ? ` · ${escapeHtml(s.machine)}` : ""}</div>
+                ${s.machine ? `<div class="session-meta">${escapeHtml(s.machine)}</div>` : ""}
             </div>
             <div class="weight">${s.max_weight !== null ? `${formatWeight(s.max_weight)} kg` : "—"}${recordMark(s)}</div>
         </div>`).join("");
 
     container.innerHTML = `
         ${badges ? `<div class="exercise-badges">${badges}</div>` : ""}
+        ${gymChips}
+        ${gymList.length === 1 ? `<p class="gym-filter-single">📍 ${escapeHtml(gymList[0].name)}</p>` : ""}
         <div class="stat-grid">${tiles}</div>
         <section class="report">${chartHtml}</section>
         <section class="report">
@@ -1401,6 +1432,10 @@ function renderExerciseProgress(data) {
             <div class="session-list">${rows}</div>
         </section>
     `;
+
+    container.querySelectorAll(".gym-filter-btn").forEach(btn => {
+        btn.addEventListener("click", () => renderExerciseProgress(data, Number(btn.dataset.id)));
+    });
 
     const canvas = document.getElementById("chart-exercise");
     if (weighted.length) {

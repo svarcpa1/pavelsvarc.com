@@ -849,6 +849,40 @@ input[type="password"] {
     margin-top: -0.75rem;
 }
 
+.gym-filter {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    margin-bottom: 1rem;
+    scrollbar-width: none;
+}
+
+.gym-filter-btn {
+    flex: 0 0 auto;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.9rem;
+    border: 2px solid #ece9f7;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.gym-filter-btn.selected {
+    border-color: transparent;
+    background: var(--grad);
+    color: #fff;
+    font-weight: 600;
+}
+
+.gym-filter-single {
+    margin: 0 0 1rem;
+    font-size: 0.9rem;
+    color: #777;
+}
+
 .history-detail .exercise-link {
     cursor: pointer;
 }

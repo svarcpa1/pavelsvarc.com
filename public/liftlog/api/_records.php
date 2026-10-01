@@ -3,7 +3,8 @@
 // Shared personal-record definition (include-only, produces no output).
 //
 // A logged exercise is a record when its weight is strictly higher than every
-// earlier weight for the same exercise + machine (case-insensitive, any gym).
+// earlier weight for the same gym + exercise + machine (case-insensitive).
+// Gym is part of the key because the same machine type differs between gyms.
 // "Earlier" = earlier workout, or earlier entry within the same workout.
 // The first-ever entry has nothing to beat, so it is never a record.
 //
@@ -17,7 +18,7 @@ const LL_RECORDS_CTE = "
             SELECT e.id,
                    e.max_weight,
                    MAX(e.max_weight) OVER (
-                       PARTITION BY LOWER(e.name), LOWER(COALESCE(e.machine, ''))
+                       PARTITION BY w.gym_id, LOWER(e.name), LOWER(COALESCE(e.machine, ''))
                        ORDER BY w.started_at, e.id
                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
                    ) AS previous_best
